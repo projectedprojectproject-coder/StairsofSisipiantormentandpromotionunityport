@@ -159,6 +159,8 @@ namespace Stairs.Game
         }
 
         public void ResetFocus() => focus = 0;
+        /// <summary>일시정지 (Esc와 같다). 끝나 가는 판은 멈추지 않는다.</summary>
+        public void PauseGame() { if (screen == Screen.Play && run != null && !run.Ended) Go(Screen.Pause); }
         public void GoLobby() => Go(Screen.Lobby);
         public void Resume() { if (run != null) { acc = 0; Go(Screen.Play); } }
         public void QuitToLobby() { run = null; Go(Screen.Lobby); }

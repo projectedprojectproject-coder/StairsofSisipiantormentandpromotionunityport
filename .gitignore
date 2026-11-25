@@ -13,3 +13,9 @@
 /Assets/Imported.meta
 /Assets/Resources/Stairs/
 /Assets/Resources/Stairs.meta
+
+# Stairs > Create Game Scene 이 만든다 (Imported 카탈로그를 가리키므로 같이 다시 만든다)
+/Assets/Scenes/
+/Assets/Scenes.meta
+/Assets/Settings/
+/Assets/Settings.meta

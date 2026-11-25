@@ -19,7 +19,22 @@ namespace Stairs.EditorTools
         const float PPU = 32f;   // 에셋 px 32 = 1 유닛 (논리 16px, 2배 밀도)
         static readonly HashSet<string> FeetPivot = new HashSet<string> { "player", "rival", "commuter", "props" };
 
-        static string DefaultSource => Path.GetFullPath(Path.Combine(Application.dataPath, "../../../output/build/assets"));
+        // 웹 빌드 에셋을 찾는 순서: 파이프라인 결과(output, output_api) → 저장소에 들어 있는 데모(demo_api, demo)
+        static readonly string[] Candidates = { "output/build/assets", "output_api/build/assets", "demo_api/assets", "demo/assets" };
+
+        static string DefaultSource
+        {
+            get
+            {
+                string root = Path.GetFullPath(Path.Combine(Application.dataPath, "../../.."));
+                foreach (var c in Candidates)
+                {
+                    string p = Path.Combine(root, c);
+                    if (File.Exists(Path.Combine(p, "sprite_definition.json"))) return p;
+                }
+                return Path.Combine(root, Candidates[0]);
+            }
+        }
 
         [MenuItem("Stairs/Import Web Build Assets")]
         public static void ImportMenu()
@@ -27,6 +42,7 @@ namespace Stairs.EditorTools
             string src = DefaultSource;
             if (!File.Exists(Path.Combine(src, "sprite_definition.json")))
             {
+                if (Application.isBatchMode) throw new FileNotFoundException("웹 빌드 에셋(sprite_definition.json)을 찾지 못했습니다: " + src);
                 src = EditorUtility.OpenFolderPanel("웹 빌드의 assets 폴더 (sprite_definition.json이 있는 곳)", src, "");
                 if (string.IsNullOrEmpty(src)) return;
             }
@@ -99,25 +115,42 @@ namespace Stairs.EditorTools
 
         static SpriteCatalog.Sheet SliceSheet(string id, string path, int fw, int fh, Vector2 pivot)
         {
-            var tex = AssetDatabase.LoadAssetAtPath<Texture2D>(path);
-            int cols = Mathf.Max(1, tex.width / fw), rows = Mathf.Max(1, tex.height / fh);
+            // 실제 PNG 크기로 자른다. 처음 가져올 때(기본 텍스처 설정)는 2의 거듭제곱으로 늘려 불러오므로(240x24 → 256x32)
+            // 그 크기로 자르면 자른 칸이 그림 밖으로 나가 Unity가 버린다 (2026-11-25 플레이테스트: 한 줄짜리 시트는 모두, 나머지는 한 줄씩 빠졌다)
+            var (texW, texH) = PngSize(path);
+            int cols = Mathf.Max(1, texW / fw), rows = Mathf.Max(1, texH / fh);
             var metas = new List<SpriteMetaData>();
             for (int r = 0; r < rows; r++)
                 for (int c = 0; c < cols; c++)
                     metas.Add(new SpriteMetaData
                     {
                         name = $"{id}_{r}_{c}",
-                        rect = new Rect(c * fw, tex.height - (r + 1) * fh, fw, fh),   // 웹은 위에서부터, Unity는 아래에서부터
+                        rect = new Rect(c * fw, texH - (r + 1) * fh, fw, fh),   // 웹은 위에서부터, Unity는 아래에서부터
                         alignment = (int)SpriteAlignment.Custom,
                         pivot = pivot,
                     });
             SetPixelArt(path, SpriteImportMode.Multiple, metas.ToArray());
             var all = AssetDatabase.LoadAllAssetsAtPath(path).OfType<Sprite>().ToDictionary(s => s.name);
             var arr = new Sprite[rows * cols];
+            int missing = 0;
             for (int r = 0; r < rows; r++)
                 for (int c = 0; c < cols; c++)
-                    all.TryGetValue($"{id}_{r}_{c}", out arr[r * cols + c]);
+                    if (!all.TryGetValue($"{id}_{r}_{c}", out arr[r * cols + c])) missing++;
+            if (missing > 0) Debug.LogError($"[Stairs] {id}: {rows * cols}칸 중 {missing}칸을 자르지 못했습니다 ({texW}x{texH}, 프레임 {fw}x{fh})");
             return new SpriteCatalog.Sheet { id = id, frameW = fw, frameH = fh, cols = cols, rows = rows, sprites = arr };
+        }
+
+        /// <summary>PNG 머리(IHDR)에서 원래 가로·세로를 읽는다.</summary>
+        static (int w, int h) PngSize(string path)
+        {
+            using (var f = File.OpenRead(path))
+            {
+                var b = new byte[24];
+                if (f.Read(b, 0, 24) < 24) throw new IOException("PNG가 아닙니다: " + path);
+                int w = (b[16] << 24) | (b[17] << 16) | (b[18] << 8) | b[19];
+                int h = (b[20] << 24) | (b[21] << 16) | (b[22] << 8) | b[23];
+                return (w, h);
+            }
         }
 
         static void SetPixelArt(string path, SpriteImportMode mode, SpriteMetaData[] metas)
@@ -130,6 +163,7 @@ namespace Stairs.EditorTools
             ti.textureCompression = TextureImporterCompression.Uncompressed;
             ti.mipmapEnabled = false;
             ti.alphaIsTransparency = true;
+            ti.npotScale = TextureImporterNPOTScale.None;   // 픽셀 아트: 크기를 늘리지 않는다
 #pragma warning disable 618   // Unity 6에서 spritesheet는 ISpriteEditorDataProvider 권장이지만 아직 동작한다
             if (metas != null) ti.spritesheet = metas;
 #pragma warning restore 618
@@ -140,7 +174,8 @@ namespace Stairs.EditorTools
         public static void CreateScene()
         {
             var catalog = AssetDatabase.LoadAssetAtPath<SpriteCatalog>(Dst + "/SpriteCatalog.asset");
-            if (!catalog && EditorUtility.DisplayDialog("Stairs", "SpriteCatalog가 없습니다. 웹 빌드 에셋을 먼저 가져올까요?", "가져오기", "그냥 만들기"))
+            if (!catalog && Application.isBatchMode) { ImportMenu(); catalog = AssetDatabase.LoadAssetAtPath<SpriteCatalog>(Dst + "/SpriteCatalog.asset"); }
+            else if (!catalog && EditorUtility.DisplayDialog("Stairs", "SpriteCatalog가 없습니다. 웹 빌드 에셋을 먼저 가져올까요?", "가져오기", "그냥 만들기"))
             {
                 ImportMenu();
                 catalog = AssetDatabase.LoadAssetAtPath<SpriteCatalog>(Dst + "/SpriteCatalog.asset");
@@ -159,6 +194,34 @@ namespace Stairs.EditorTools
             EditorSceneManager.SaveScene(scene, "Assets/Scenes/Game.unity");
             EditorBuildSettings.scenes = new[] { new EditorBuildSettingsScene("Assets/Scenes/Game.unity", true) };
             Debug.Log("[Stairs] Assets/Scenes/Game.unity 를 만들었습니다. Play를 누르세요.");
+        }
+
+        /// <summary>
+        /// 명령줄 플레이테스트: 에셋 가져오기 → 씬 만들기 → Windows 플레이어 빌드.
+        ///   Unity.exe -batchmode -projectPath unity/StairsOfPromotion -executeMethod Stairs.EditorTools.StairsAssetImporter.BuildPlaytestPlayer -stairsBuild &lt;폴더&gt; -quit
+        /// 만든 Stairs.exe를 -stairsPlaytest &lt;폴더&gt; 로 실행하면 PlaytestDriver가 화면마다 스크린샷을 찍고 끝낸다.
+        /// </summary>
+        public static void BuildPlaytestPlayer()
+        {
+            string outDir = Arg("-stairsBuild") ?? Path.GetFullPath("Builds/Playtest");
+            Import(DefaultSource);
+            CreateScene();
+            var report = BuildPipeline.BuildPlayer(new BuildPlayerOptions
+            {
+                scenes = new[] { "Assets/Scenes/Game.unity" },
+                locationPathName = Path.Combine(outDir, "Stairs.exe"),
+                target = BuildTarget.StandaloneWindows64,
+                options = BuildOptions.Development,
+            });
+            Debug.Log("[Stairs] 플레이테스트 빌드: " + report.summary.result + " (" + report.summary.totalErrors + " errors) → " + outDir);
+            if (report.summary.result != UnityEditor.Build.Reporting.BuildResult.Succeeded) EditorApplication.Exit(1);
+        }
+
+        static string Arg(string name)
+        {
+            var a = System.Environment.GetCommandLineArgs();
+            for (int i = 0; i < a.Length - 1; i++) if (a[i] == name) return a[i + 1];
+            return null;
         }
 
         static T LoadOrCreate<T>(string path) where T : ScriptableObject

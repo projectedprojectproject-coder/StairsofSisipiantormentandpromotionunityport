@@ -160,7 +160,7 @@ namespace Stairs.Game
             bestText = Label(lobby, "", 278, 87, 7, Ink, TextAnchor.MiddleCenter, true, 68);
             bestSub = Label(lobby, "", 278, 96, 5, Silver, TextAnchor.MiddleCenter, false, 68);
 
-            lobbyHint = Label(lobby, "", 160, 142, 6, Ink);
+            lobbyHint = Label(lobby, "", 200, 142, 6, Ink);   // 사원증(오른쪽 끝 86px)과 겹치지 않게 오른쪽으로
             lobbyButtons.Add(MakeButton(lobby, "연습 모드", 12, 150, 84, 18, 8, false, () => gc.StartRun(GameMode.Practice)));
             lobbyButtons.Add(MakeButton(lobby, "업무 시작", 104, 150, 112, 18, 10, true, () => gc.StartRun(GameMode.Normal)));   // 4 업무 시작
             lobbyButtons.Add(MakeButton(lobby, "무한 모드", 224, 150, 84, 18, 8, false, () => gc.StartRun(GameMode.Endless)));
