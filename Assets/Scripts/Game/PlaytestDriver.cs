@@ -44,6 +44,7 @@ namespace Stairs.Game
             Directory.CreateDirectory(dir);
             var gc = FindFirstObjectByType<GameController>();
             if (!gc) { log.AppendLine("GameController 없음"); Finish(); yield break; }
+            gc.ignoreInput = true;   // 플레이테스트 창에 눌린 키·마우스는 무시한다 (가만히 있는 판이 사람 입력으로 오르던 일)
             if (System.Array.IndexOf(System.Environment.GetCommandLineArgs(), "-stairsAudioCheck") >= 0)
             {   // 소리만 확인: 타이틀에서 0.5초마다 출력 크기와 소리별 재생 위치
                 for (int i = 0; i < 8; i++) { yield return new WaitForSecondsRealtime(0.5f); Line(AudioReport(gc, "타이틀 " + (i + 1) * 0.5f + "s")); }
@@ -123,7 +124,7 @@ namespace Stairs.Game
         }
 
         // 장면마다 보기 좋은 순간 (초). 순서는 GameController.Demos, web_shots.py와 같다
-        static readonly float[] DemoMoments = { 1.3f, 1.45f, 1.9f, 1.5f, 1.55f, 1.5f, 1.5f, 1.9f, 1.5f, 2.1f, 1.85f, 1.2f, 1.3f, 2.2f, 1.6f, 1.6f, 2.1f, 1.65f, 0.85f };
+        static readonly float[] DemoMoments = { 1.3f, 1.45f, 1.9f, 1.5f, 1.55f, 1.5f, 1.5f, 1.9f, 1.5f, 2.1f, 1.85f, 1.9f, 1.4f, 1.55f, 1.3f, 1.2f, 1.3f, 2.2f, 1.6f, 1.6f, 2.1f, 1.65f, 0.85f };
 
         IEnumerator Steps(GameController gc, int n) => Until(() => gc.run == null || gc.run.Ended || gc.run.steps >= n, 90);
 

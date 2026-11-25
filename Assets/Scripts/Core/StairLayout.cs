@@ -85,6 +85,17 @@ namespace Stairs.Core
         }
 
         /// <summary>사라지는 칸 (웹 isVanish): 층이 바뀌는 칸, 다른 장애물 칸은 빼고 칸 번호로. 모두 같은 박자로 나타나고 사라진다.</summary>
+        /// <summary>거꾸로 칸: 35층부터 일부 칸 (층이 바뀌는 칸, 다른 계단 장애물 칸은 빼고). 그 칸에서는 반대쪽 화살표로 오른다 (웹 isReverse).</summary>
+        public bool IsReverse(int i)
+        {
+            if (Mode == GameMode.Practice) return false;
+            int from = Mode == GameMode.Endless ? 6 : c.reverseFromFloor;
+            if (FloorOfSteps(i) < from || i % c.stairsPerFloor == 0 || IsCracked(i) || IsWet(i) || IsEscalator(i) || IsVanish(i)) return false;
+            return HashBelow(i, 1597334677UL, c.reverseShare);
+        }
+        /// <summary>i번 칸에서 오르려면 눌러야 하는 쪽 (웹 needDir).</summary>
+        public int NeedDir(int i) => IsReverse(i) ? -DirAt(i) : DirAt(i);
+
         public bool IsVanish(int i)
         {
             if (Mode == GameMode.Practice) return false;

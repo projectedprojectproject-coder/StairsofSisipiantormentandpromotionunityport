@@ -9,7 +9,7 @@ using System.Collections.Generic;
 
 namespace Stairs.Core
 {
-    public enum ThreatType { Clipboard, Rival, Phone, Paper, Monitor, Coffee, Sticky, Suitcase, Stapler, Airplane }
+    public enum ThreatType { Clipboard, Rival, Phone, Paper, Monitor, Coffee, Sticky, Suitcase, Stapler, Airplane, Envelope, Chair }
 
     /// <summary>사라지는 칸의 박자 (웹 vanishState).</summary>
     public struct VanishState { public bool gone, warn; public double goneIn, backIn; }
@@ -29,7 +29,9 @@ namespace Stairs.Core
         public double spin, wob, ph;
         public string debris;
         public bool returned;     // 스테이플러: 반대쪽에서 돌아오는 중
-        public int k;             // 종이비행기 편대: 지나간 비행기 수
+        public int k;             // 종이비행기 편대·편지: 지나간 수
+        public bool over, passed, hopped;   // 의자: 머리 위로 넘어가는지, 넘어갔는지, 튀는 소리를 냈는지
+        public int cueK;          // 편지: 박자 소리를 낸 수
         // ---- 경쟁 사원만 ----
         public bool locked;       // 막을 쪽이 정해졌다 (치기 rivalLeap초 전)
         public RivalPhase phase;
@@ -154,7 +156,7 @@ namespace Stairs.Core
 
         public bool Ended => ended != null;
         public string RankName => C.rankNames[rankIdx];
-        public int NextDir => Stairs.DirAt(steps);
+        public int NextDir => Stairs.NeedDir(steps);   // 거꾸로 칸에서는 반대쪽
         public ShockState Shock => Stairs.Shock(time);
 
         public VanishState Vanish()
@@ -201,8 +203,8 @@ namespace Stairs.Core
         public void Step(int dir)
         {
             if (Ended || Mode == GameMode.Practice) return;
-            int need = Stairs.DirAt(steps);
-            if (dir != need) { Log?.Invoke("wrong direction"); facing = need; lastKind = "wrong"; LoseHeart("wrong"); return; }
+            int need = Stairs.NeedDir(steps);   // 거꾸로 칸에서는 반대쪽
+            if (dir != need) { Log?.Invoke("wrong direction"); facing = Stairs.DirAt(steps); lastKind = Stairs.IsReverse(steps) ? "reverse" : "wrong"; LoseHeart("wrong"); return; }
             if (GazeOnPlayer() && gazeHitCycle != Gaze().cycle)   // 상사의 눈이 나를 비추는 동안 움직였다
             {
                 gazeHitCycle = Gaze().cycle;
@@ -245,7 +247,9 @@ namespace Stairs.Core
             parryStart[s] = time;
             parryEnd[s] = time + D(C.parryWindow);
             parryCd[s] = parryEnd[s] + D(C.parryCooldown);
+            parryVar = (parryVar + 1) % 3;   // 막기 동작: 누를 때마다 곧게 막기 → 두 손 밀기 → 위로 쳐내기 (그리기용)
         }
+        public int parryVar;
 
         // ------------------------------------------------------------ 규칙
         void LoseHeart(string reason)
@@ -298,6 +302,8 @@ namespace Stairs.Core
                 (ThreatType.Suitcase, f >= C.suitcaseFromFloor ? D(C.weightSuitcase) : 0),
                 (ThreatType.Stapler, f >= C.staplerFromFloor ? D(C.weightStapler) : 0),
                 (ThreatType.Airplane, f >= C.airplaneFromFloor ? D(C.weightAirplane) : 0),
+                (ThreatType.Envelope, f >= C.envelopeFromFloor ? D(C.weightEnvelope) : 0),
+                (ThreatType.Chair, f >= C.chairFromFloor ? D(C.weightChair) : 0),
             };
             double sum = 0; foreach (var e in w) sum += e.w;
             double x = rng.Next() * sum;
@@ -330,6 +336,8 @@ namespace Stairs.Core
             t.ph = decor.Next() * 6.28;
             t.hp = type == ThreatType.Sticky ? 1 + (int)Math.Floor(rng.Next() * C.stickyMax) : 1;
             t.debris = decor.Next() < 0.5 ? "document" : "clipboard";
+            t.over = type == ThreatType.Chair && rng.Next() < D(C.chairOverShare);   // 의자: 머리 위로 넘어가는지 (웹과 같은 rng 순서)
+            if (type == ThreatType.Chair) t.side = t.from = Stairs.DirAt(steps);       // 의자는 위 계단(오를 쪽)에서 굴러 내려온다
             if (rival)
             {
                 t.locked = false; t.phase = RivalPhase.Walk; t.ri = 0;
@@ -427,7 +435,7 @@ namespace Stairs.Core
             { ThreatType.Phone, ("sfx_phone_ring", 0.50) }, { ThreatType.Paper, ("sfx_cue_paper", 0.35) },
             { ThreatType.Coffee, ("sfx_cue_coffee", 0.135) }, { ThreatType.Sticky, ("sfx_cue_sticky", 0.40) },
             { ThreatType.Suitcase, ("sfx_cue_suitcase", 0.46) },
-            { ThreatType.Stapler, ("sfx_cue_stapler", 0.40) }, { ThreatType.Airplane, ("sfx_cue_airplane", 0.35) },
+            { ThreatType.Stapler, ("sfx_cue_stapler", 0.40) }, { ThreatType.Airplane, ("sfx_cue_airplane", 0.35) }, { ThreatType.Chair, ("sfx_cue_chair", 0.40) },
         };
 
         /// <summary>한 프레임 진행 (웹의 updatePlay). 웹과 같게 하려면 dt = Step60. 끝난 뒤 endDelay가 지나면 true를 돌려준다.</summary>
@@ -512,7 +520,29 @@ namespace Stairs.Core
                 if (p.IsRival) UpdateRival(p, dt);
                 if (p.type == ThreatType.Monitor && !p.shattered && time >= p.spawnT) { p.shattered = true; Sfx?.Invoke("sfx_monitor_shatter"); }
                 // 패링 타이밍 소리. 경쟁 사원은 막을 쪽이 정해진 뒤에만
-                if (Cues.TryGetValue(p.type, out var cue) && !p.cued && !p.done && p.SideKnown && time >= p.impactT - cue.lead) { p.cued = true; Sfx?.Invoke(cue.id); Log?.Invoke("cue " + p.type.ToString().ToLowerInvariant()); }
+                if (Cues.TryGetValue(p.type, out var cue) && !p.cued && !p.done && p.SideKnown && !(p.type == ThreatType.Chair && p.over) && time >= p.impactT - cue.lead) { p.cued = true; Sfx?.Invoke(cue.id); Log?.Invoke("cue " + p.type.ToString().ToLowerInvariant()); }
+                if (p.type == ThreatType.Chair && p.over)   // 크게 튀는 의자: 머리 위로 넘어가 계속 굴러 떨어진다 (해 없음)
+                {
+                    if (!p.hopped && time >= p.impactT - 0.35) { p.hopped = true; Sfx?.Invoke("sfx_chair_hop"); }
+                    if (!p.passed && time >= p.impactT) { p.passed = true; Log?.Invoke("chair over"); }
+                    if (time >= p.impactT + 0.8) p.done = true;
+                    continue;
+                }
+                if (p.type == ThreatType.Envelope)   // 편지 3연발: 한 장씩 도착할 때 그 쪽 막기가 켜져 있어야 한다
+                {
+                    if (p.done) continue;
+                    int es = p.side < 0 ? 0 : 1; double gap = D(C.envelopeGap);
+                    while (p.cueK < C.envelopeCount && time >= p.impactT + p.cueK * gap - 0.35) { p.cueK++; Sfx?.Invoke("sfx_cue_envelope"); }
+                    while (!p.done && p.k < C.envelopeCount && time >= p.impactT + p.k * gap)
+                    {
+                        double th = p.impactT + p.k * gap;
+                        if (parryStart[es] <= th && th <= parryEnd[es]) { p.k++; GainParry(p, th); }
+                        else { p.done = true; Log?.Invoke("envelope miss " + p.k); lastKind = "envelope"; LoseHeart("attack"); }
+                    }
+                    if (Ended) break;
+                    if (p.k >= C.envelopeCount) p.done = true;
+                    continue;
+                }
                 if (p.type == ThreatType.Airplane)   // 종이비행기 편대: 비행기마다 도착할 때 날아오는 쪽 키를 누르고 있어야 한다
                 {
                     if (p.done) continue;
@@ -563,7 +593,7 @@ namespace Stairs.Core
         }
 
         /// <summary>막기에 성공했을 때 (웹 gainParry): 점수·콤보·일수·불꽃·글자. 종이비행기 편대는 다 막은 뒤 한 번.</summary>
-        void GainParry(Threat p)
+        void GainParry(Threat p, double? th = null)   // th: 맞는 순간 (편지는 장마다 다르다)
         {
             parryHitT = time; parryHitSide = p.side;   // 막기 성공 프레임 (그리기용)
             parries++; combo++;
@@ -573,7 +603,7 @@ namespace Stairs.Core
             days = Math.Min(D(C.maxDays), days + D(C.parryDays));
             score += C.parryPoints * mult;
             int ps = p.side < 0 ? 0 : 1;   // 완벽하게(판정 창 한가운데에서) 막으면 더 짜릿한 소리, 조금 이르거나 늦으면 예전 소리
-            bool perfect = p.type == ThreatType.Airplane || Math.Abs(p.impactT - parryStart[ps] - D(C.parryWindow) / 2) <= D(C.parryPerfect);
+            bool perfect = p.type == ThreatType.Airplane || Math.Abs((th ?? p.impactT) - parryStart[ps] - D(C.parryWindow) / 2) <= D(C.parryPerfect);
             Sfx?.Invoke(perfect ? "sfx_parry_perfect" : "sfx_parry");
             int px = PlayerScreenX + p.side * 10;
             for (int k = 0; k < 8; k++)   // 패링 불꽃 (웹과 같이 decor 8번, 화면 좌표)
@@ -615,8 +645,8 @@ namespace Stairs.Core
             foreach (var p in threats) if (p.type == ThreatType.Airplane && !p.done && time >= p.impactT - D(C.botParryLead)) held[p.side < 0 ? 0 : 1] = true;
             foreach (var p in threats)
             {
-                if (p.done || p.type == ThreatType.Coffee || p.type == ThreatType.Airplane || !p.SideKnown) continue;
-                double tti = p.impactT - time;
+                if (p.done || p.type == ThreatType.Coffee || p.type == ThreatType.Airplane || !p.SideKnown || (p.type == ThreatType.Chair && p.over)) continue;   // 넘어가는 의자는 막지 않는다
+                double tti = (p.type == ThreatType.Envelope ? p.impactT + p.k * D(C.envelopeGap) : p.impactT) - time;
                 int s = p.side < 0 ? 0 : 1;
                 if (tti > 0 && tti <= D(C.botParryLead) && time >= parryCd[s]) Parry(p.side);
             }

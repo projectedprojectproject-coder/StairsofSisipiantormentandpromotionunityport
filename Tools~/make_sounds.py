@@ -68,3 +68,16 @@ sweep = tri(2600 + 2200 * np.exp(-tt * 20), d) * np.exp(-tt * 25) * 0.3         
 w = crack + ring + thump + sweep
 echo = np.zeros_like(w); k = int(0.07 * SR); echo[k:] = w[:-k] * 0.35; w = w + echo
 w = np.tanh(w * 3.0) * np.exp(-tt * 2.5); w *= np.minimum(1, tt / 0.001); save('sfx_parry_perfect', w, 0.72)   # 부드럽게 눌러 펀치감
+
+# 굴러오는 의자: 바퀴가 덜그럭 구르는 소리, 끝의 '쾅'(박 0.30) — 앞당김 0.40
+d = 0.45; tt = t(d); b = noise(d, 31) * 0.25 * (np.sin(2 * np.pi * 22 * tt) > 0.3) * np.minimum(1, tt / 0.05)
+b += sq(np.full(len(tt), 140.0), d, 0.4) * 0.12 * (np.sin(2 * np.pi * 11 * tt) > 0)
+hit = noise(0.12, 32) * env(len(t(0.12)), r=0.12) * 0.8 + sq(np.linspace(220, 90, len(t(0.12))), 0.12) * env(len(t(0.12)), r=0.12) * 0.8
+b[int(0.30 * SR):] *= 0.3; place(b, hit, 0.30); save('sfx_cue_chair', b, 0.7)
+# 튀어 오르는 의자: 뾰옹 (위로 튀는 소리, 막지 말라는 신호)
+d = 0.35; tt = t(d); w = tri(250 + 900 * (tt / d) ** 0.6, d) * env(len(tt), r=0.15) * 0.8 + sq(250 + 900 * (tt / d) ** 0.6, d, 0.2) * env(len(tt), r=0.15) * 0.2
+save('sfx_chair_hop', w, 0.55)
+# 편지 한 장: 종이가 휙 스치는 소리 끝의 '착'(박 0.25) — 앞당김 0.35
+d = 0.33; tt = t(d); w = noise(d, 41) * 0.35 * np.minimum(1, tt / 0.2) * (tt < 0.25)
+snap = noise(0.06, 42) * env(len(t(0.06)), r=0.06) * 0.9 + tri(np.full(len(t(0.06)), 2600.0), 0.06) * env(len(t(0.06)), r=0.06) * 0.5
+place(w, snap, 0.25); save('sfx_cue_envelope', w, 0.6)

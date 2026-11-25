@@ -51,7 +51,7 @@ namespace Stairs.Game
         }
 
         // 웹 ONCE: 한 번만 재생하고 마지막 프레임에 멈추는 동작 (나머지는 되풀이)
-        static readonly HashSet<string> Once = new HashSet<string> { "step", "climb_r", "climb_l", "down", "parry_hit_left", "parry_hit_right", "parry_left", "parry_right", "hit", "box_exit", "proud", "attack", "leave" };
+        static readonly HashSet<string> Once = new HashSet<string> { "step", "climb_r", "climb_l", "down", "parry_hit_left", "parry_hit_right", "parry_hit_left2", "parry_hit_right2", "parry_hit_left3", "parry_hit_right3", "parry_left", "parry_right", "hit", "box_exit", "proud", "attack", "leave" };
 
         /// <summary>시트 id, 애니메이션, 변형(행 이름 또는 번호), 시간 t(초)의 스프라이트. 없으면 null.</summary>
         public Sprite Get(string id, string anim, string variant, double t)
