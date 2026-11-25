@@ -49,14 +49,19 @@ namespace Stairs.Game
             return sheetMap.TryGetValue(id, out var s) && s.anims.Exists(a => a.name == anim);
         }
 
+        // 웹 ONCE: 한 번만 재생하고 마지막 프레임에 멈추는 동작 (나머지는 되풀이)
+        static readonly HashSet<string> Once = new HashSet<string> { "step", "parry_left", "parry_right", "hit", "box_exit", "proud", "attack", "leave" };
+
         /// <summary>시트 id, 애니메이션, 변형(행 이름 또는 번호), 시간 t(초)의 스프라이트. 없으면 null.</summary>
-        public Sprite Get(string id, string anim, string variant, float t)
+        public Sprite Get(string id, string anim, string variant, double t)
         {
             if (sheetMap == null) Build();
             if (!sheetMap.TryGetValue(id, out var s) || s.sprites == null) return null;
             var a = s.anims.Find(x => x.name == anim) ?? (s.anims.Count > 0 ? s.anims[0] : null);
             if (a == null || a.frames == null || a.frames.Length == 0) return null;
-            int col = a.frames[(int)Mathf.Floor(t * a.fps) % a.frames.Length];
+            int n = (int)Math.Floor(Math.Max(0, t) * a.fps);   // 웹: Math.max(0, t). 음수면 배열 밖이라 예외가 났다
+            n = Once.Contains(a.name) ? Math.Min(n, a.frames.Length - 1) : n % a.frames.Length;
+            int col = a.frames[n];
             int row = 0;
             if (!string.IsNullOrEmpty(variant) && s.variants != null)
             {

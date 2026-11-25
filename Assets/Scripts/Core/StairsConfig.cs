@@ -60,6 +60,13 @@ namespace Stairs.Core
         public float stepW = 22f, stepH = 12f;
         public float viewW = 320f, viewH = 180f;   // 웹 W, H. 경쟁 사원이 화면 끝에서 들어오는 자리에 쓴다
 
+        /// <summary>
+        /// 인스펙터용 float 값을 웹(JS double)과 같은 double로 읽는다. (double)0.33f 는 0.32999998이지만
+        /// float→decimal 변환은 유효 숫자 7자리로 반올림되므로 (double)(decimal)0.33f == 0.33 이다.
+        /// Core는 상태를 모두 double로 쌓고 수치는 이것으로 읽어, 같은 seed면 웹과 프레임 단위까지 같다 (2026-11-25 플레이테스트).
+        /// </summary>
+        public static double D(float v) => (double)(decimal)v;
+
         public string[] rankNames = { "사원", "대리", "과장", "간부", "CEO" };
         public string[] zoneNames = { "파티션 사무실", "개방형 오피스", "텅 빈 회의실", "임원층", "CEO실" };
     }

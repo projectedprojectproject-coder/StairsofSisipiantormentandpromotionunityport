@@ -47,7 +47,7 @@ namespace Stairs.Game
                                 helpButtons = new List<UiButton>(), resultButtons = new List<UiButton>();
         // HUD
         Text floorText, daysText, comboText, multText, toastText, warnText, practiceText, practiceHint;
-        Image daysGauge, hurt, cardPlayer; RectTransform normalRight, practiceRight;
+        Image daysGauge, cardPlayer; RectTransform normalRight, practiceRight;
         readonly List<Image> hearts = new List<Image>();
         readonly Image[] keyFill = new Image[4];
         // 로비
@@ -181,7 +181,6 @@ namespace Stairs.Game
         void BuildHud()
         {
             hud = Panel("HUD");
-            hurt = Box(hud, 0, 0, W, H, A(Red, 0), "Hurt");
             Plate(hud, 6, 5, 86, 19);                                                     // 1 층수·직급 명판
             Icon(hud, Hud("badge"), 10, 9, 12, 12, Green, "Badge");
             floorText = Label(hud, "", 56, 14.5f, 9, Ink, TextAnchor.MiddleCenter, true, 70);
@@ -228,9 +227,9 @@ namespace Stairs.Game
             else
             {
                 bool low = r.days <= 7;
-                daysText.text = "D-" + Mathf.CeilToInt(r.days);
+                daysText.text = "D-" + (int)System.Math.Ceiling(r.days);
                 daysText.color = low ? Red : Ink;
-                float k = Mathf.Clamp01(r.days / C.maxDays);
+                float k = Mathf.Clamp01((float)(r.days / C.maxDays));
                 daysGauge.rectTransform.sizeDelta = new Vector2(80 * k, 1);
                 daysGauge.color = low ? Red : Green;
                 for (int i = 0; i < hearts.Count; i++)
@@ -246,7 +245,6 @@ namespace Stairs.Game
             toastText.text = gc.toast != null && Time.time < gc.toastUntil ? gc.toast : "";
             var sh = r.Shock;
             warnText.text = !r.Ended && sh.warn && r.Stairs.IsWet(r.steps + 1) ? "⚡ 곧 전기가 흐릅니다" : "";
-            hurt.color = A(Red, 0.25f * r.hurtFlash / 0.35f);   // 맞으면 붉게 번쩍
             for (int i = 0; i < 4; i++)
             {
                 bool lit = Time.time < gc.padUntil[i];
@@ -379,7 +377,7 @@ namespace Stairs.Game
         static void SetFrameColor(Image anyEdge, Color c)
         {
             if (!anyEdge) return;
-            foreach (var g in anyEdge.transform.parent.GetComponentsInChildren<Image>()) g.color = c;
+            foreach (var g in anyEdge.transform.parent.GetComponentsInChildren<Image>(true)) g.color = c;
         }
 
         void RefreshResult(float rt)

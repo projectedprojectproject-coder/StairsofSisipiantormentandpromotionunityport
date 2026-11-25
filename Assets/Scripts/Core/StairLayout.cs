@@ -10,7 +10,7 @@ namespace Stairs.Core
     {
         public bool live;     // 지금 전기가 흐름 (젖은 칸에 있으면 감전)
         public bool warn;     // 곧 흐름 (전선 끝 불꽃)
-        public float shockIn; // 다음에 흐르기까지 초 (흐르는 중이면 0)
+        public double shockIn; // 다음에 흐르기까지 초 (흐르는 중이면 0)
         public int cycle;
     }
 
@@ -19,7 +19,7 @@ namespace Stairs.Core
         readonly StairsConfig c;
         readonly Mulberry32 rng;
         readonly List<int> dirs = new List<int>();
-        readonly List<float> xs = new List<float> { 0f };
+        readonly List<double> xs = new List<double> { 0.0 };
         int runLen;
         public GameMode Mode;
 
@@ -43,14 +43,14 @@ namespace Stairs.Core
                     else { d = last; runLen++; }
                 }
                 dirs.Add(d);
-                xs.Add(xs[xs.Count - 1] + d * c.stepW);
+                xs.Add(xs[xs.Count - 1] + d * StairsConfig.D(c.stepW));
             }
         }
 
         /// <summary>i번째 칸에서 다음 칸으로 가는 방향 (-1 왼쪽, +1 오른쪽).</summary>
         public int DirAt(int i) { Ensure(i + 1); return dirs[i]; }
         /// <summary>i번째 칸의 가로 위치(논리 px). 세로는 -i * stepH.</summary>
-        public float StairX(int i) { Ensure(i + 1); return xs[i]; }
+        public double StairX(int i) { Ensure(i + 1); return xs[i]; }
         public int FloorOfSteps(int n) => 1 + n / c.stairsPerFloor;
         public static int ZoneOf(int f) => f <= 20 ? 1 : f <= 40 ? 2 : f <= 60 ? 3 : f <= 99 ? 4 : 5;
         /// <summary>배경음악 단계 1~5 (20층마다. 배경 구간과 달리 81~99층이 5단계).</summary>
@@ -75,14 +75,14 @@ namespace Stairs.Core
             return HashBelow(i, 2246822519UL, c.wetShare);
         }
 
-        public ShockState Shock(float t)
+        public ShockState Shock(double t)
         {
-            float P = c.shockPeriod, ph = t % P, start = P - c.shockTime;
+            double P = StairsConfig.D(c.shockPeriod), ph = t % P, start = P - StairsConfig.D(c.shockTime);
             return new ShockState
             {
                 live = ph >= start,
-                warn = ph >= start - c.shockWarn && ph < start,
-                shockIn = ph >= start ? 0f : start - ph,
+                warn = ph >= start - StairsConfig.D(c.shockWarn) && ph < start,
+                shockIn = ph >= start ? 0.0 : start - ph,
                 cycle = (int)Math.Floor(t / P),
             };
         }

@@ -1,5 +1,8 @@
 // 웹 PoC(demo_api/game.js)와 같은 결과가 나오는지 확인한다. 기대값은 웹 코드를 node로 돌려 뽑았다 (2026-11-25).
 // Window > General > Test Runner > EditMode 에서 돌린다.
+// Core는 상태를 double로 쌓으므로 1/60초(RunSimulation.Step60)씩 돌리면 웹과 프레임 단위까지 같다.
+// 기대값 다시 뽑기: node unity/StairsOfPromotion/Tools~/rival_expect.js demo_api/game.js
+//                  node unity/StairsOfPromotion/Tools~/playtest.js demo_api/game.js
 using System.Collections.Generic;
 using System.Linq;
 using NUnit.Framework;
@@ -38,14 +41,23 @@ public class ParityTests
     }
 
     [Test]
+    public void ConfigValues_ReadAsWebDoubles()
+    {
+        // (double)0.33f 는 0.32999998... 이라 1일 길이가 웹과 달라진다. D()는 웹의 0.33 그대로
+        Assert.AreEqual(0.33, StairsConfig.D(0.33f));
+        Assert.AreEqual(0.145, StairsConfig.D(0.145f));
+        Assert.AreEqual(0.19, StairsConfig.D(new StairsConfig().botStepInterval));
+    }
+
+    [Test]
     public void ShockCycle_LiveLastHalfSecondOfEveryThree()
     {
         var s = new StairLayout(new StairsConfig(), 1, GameMode.Normal);
-        Assert.IsFalse(s.Shock(2.4f).live);
-        Assert.IsTrue(s.Shock(2.4f).warn);
-        Assert.IsTrue(s.Shock(2.6f).live);
-        Assert.IsFalse(s.Shock(3.1f).live);
-        Assert.AreEqual(2.0f, s.Shock(0.5f).shockIn, 1e-4);
+        Assert.IsFalse(s.Shock(2.4).live);
+        Assert.IsTrue(s.Shock(2.4).warn);
+        Assert.IsTrue(s.Shock(2.6).live);
+        Assert.IsFalse(s.Shock(3.1).live);
+        Assert.AreEqual(2.0, s.Shock(0.5).shockIn, 1e-9);
     }
 
     [Test]
@@ -53,23 +65,42 @@ public class ParityTests
     {
         var sim = new RunSimulation(new StairsConfig(), 1, GameMode.Normal);
         sim.steps = 176; sim.floor = sim.Stairs.FloorOfSteps(176); sim.hearts = 99; sim.days = 99; sim.nextAttack = 999;
-        for (int i = 0; i < 60 * 3 && !sim.Ended; i++) sim.Tick(1f / 60f);
+        for (int i = 0; i < 60 * 3 && !sim.Ended; i++) sim.Tick(RunSimulation.Step60);
         Assert.IsTrue(sim.Ended);
         Assert.AreEqual("shock", sim.ended.cause);
         Assert.AreEqual("shock", sim.ended.tip);
-        Assert.GreaterOrEqual(sim.time, 2.5f);   // 흐르기 전(0~2.5초)에는 살아 있다
+        Assert.GreaterOrEqual(sim.time, 2.5);   // 흐르기 전(0~2.5초)에는 살아 있다
     }
 
     [Test]
     public void Bot_ReachesFloor100AsCeo()
     {
         var sim = new RunSimulation(new StairsConfig(), 1, GameMode.Normal);
-        sim.Bot = true;   // 웹처럼 Tick 안(시간을 더한 뒤)에서 봇이 돈다. 웹 봇도 seed 1~4 모두 100층에 닿는다 (node, 경쟁 사원 잠금 9~18번)
-        for (int i = 0; i < 60 * 600 && !sim.Ended; i++) sim.Tick(1f / 60f);
+        sim.Bot = true;   // 웹처럼 Tick 안(시간을 더한 뒤)에서 봇이 돈다
+        for (int i = 0; i < 60 * 600 && !sim.Ended; i++) sim.Tick(RunSimulation.Step60);
         Assert.IsTrue(sim.Ended);
         Assert.IsTrue(sim.ended.promoted, "봇이 " + sim.ended.cause + "로 " + sim.ended.floor + "층에서 끝남");
         Assert.AreEqual(100, sim.ended.floor);
         Assert.AreEqual("CEO", sim.RankName);
+    }
+
+    // ---------------------------------------------------------------- 한 판 전체가 웹과 같은지 (봇 플레이테스트)
+    // 웹 game.js를 node에서 ?bot=1로 돌린 결과. seed는 웹 runCount 순서(보통 1~6, 무한 7~9, 연습 10~11 중 일부).
+    // float로 쌓던 이전 Core는 같은 seed에서 점수가 146,700(웹 110,160)처럼 달라졌다.
+    [TestCase(GameMode.Normal, 1, 60 * 300, "floor100", 100, 110160, 65, 45)]
+    [TestCase(GameMode.Normal, 2, 60 * 300, "floor100", 100, 141670, 61, 61)]
+    [TestCase(GameMode.Endless, 7, 60 * 240, null, 196, 279430, 197, 74)]
+    [TestCase(GameMode.Practice, 10, 60 * 90, null, 11, 24200, 61, 61)]
+    public void BotRun_MatchesWebFrameForFrame(GameMode mode, int seed, int ticks, string cause, int floor, int score, int parries, int maxCombo)
+    {
+        var sim = new RunSimulation(new StairsConfig(), seed, mode) { Bot = true };
+        for (int i = 0; i < ticks && !sim.Ended; i++) sim.Tick(RunSimulation.Step60);
+        Assert.AreEqual(cause, sim.ended?.cause);
+        Assert.AreEqual(floor, sim.floor);
+        Assert.AreEqual(score, sim.score);
+        Assert.AreEqual(parries, sim.parries);
+        Assert.AreEqual(maxCombo, sim.maxCombo);
+        Assert.AreEqual(3, sim.hearts);
     }
 
     // ---------------------------------------------------------------- 경쟁 사원 쫓아오기 (2단계)
@@ -79,7 +110,7 @@ public class ParityTests
     sealed class RivalTrace
     {
         public int spawnSide, floorStep, lockTick = -1, lockSide, stepsAtLock, doneTick = -1;
-        public float wx0, lockRi, lockImpact;
+        public double wx0, lockRi, lockImpact;
         public RivalPhase lockPhase;
         public readonly List<string> sfx = new List<string>();
     }
@@ -96,7 +127,7 @@ public class ParityTests
         {
             if (System.Array.IndexOf(stepTicks, k) >= 0) sim.Step(sim.NextDir);
             if (k == parryTick && sim.threats.Count > 0) sim.Parry(sim.threats[0].side);
-            sim.Tick(1f / 60f);
+            sim.Tick(RunSimulation.Step60);
             if (k == 1)
             {
                 sim.nextAttack = 999; sim.forceType = null;
@@ -121,11 +152,11 @@ public class ParityTests
         var sim = RivalScenario(1, new int[0], 0, out var t);
         Assert.AreEqual(1, t.spawnSide);
         Assert.AreEqual(30, t.floorStep);
-        Assert.AreEqual(260f, t.wx0, 1e-3);                 // camX(=stairX(30)=84) + 화면 반 폭 160 + 16
+        Assert.AreEqual(260.0, t.wx0, 1e-9);                // camX(=stairX(30)=84) + 화면 반 폭 160 + 16
         Assert.AreEqual(RivalPhase.Stand, t.lockPhase);
         Assert.AreEqual(1, t.lockSide);                     // 층 바닥에서는 나온 쪽 그대로
-        Assert.AreEqual(79, t.lockTick, 1);                 // 치기 rivalLeap(0.3초) 전에 잠긴다
-        Assert.AreEqual(98, t.doneTick, 1);
+        Assert.AreEqual(79, t.lockTick);                    // 치기 rivalLeap(0.3초) 전에 잠긴다
+        Assert.AreEqual(98, t.doneTick);
         Assert.AreEqual(2, sim.hearts);                     // 막지 않았으니 하트 -1
     }
 
@@ -135,10 +166,11 @@ public class ParityTests
         var sim = RivalScenario(2, new[] { 20, 32, 44, 56 }, 0, out var t);
         Assert.AreEqual(RivalPhase.Climb, t.lockPhase);
         Assert.AreEqual(34, t.stepsAtLock);
-        Assert.AreEqual(33f, t.lockRi, 1e-4);               // 바로 뒤 칸
+        Assert.AreEqual(33.0, t.lockRi, 1e-9);              // 바로 뒤 칸
         Assert.AreEqual(-1, t.lockSide);                    // 웹 값
         Assert.AreEqual(-sim.Stairs.DirAt(t.stepsAtLock - 1), t.lockSide);   // 규칙: 플레이어가 마지막으로 오른 방향의 반대쪽
-        Assert.AreEqual(79, t.lockTick, 1);
+        Assert.AreEqual(79, t.lockTick);
+        Assert.AreEqual(98, t.doneTick);
         Assert.AreEqual(2, sim.hearts);
     }
 
@@ -146,7 +178,7 @@ public class ParityTests
     public void Rival_ParryOnLockedSide_CountsAsParry()
     {
         var sim = RivalScenario(3, new[] { 20, 32, 44, 56 }, 92, out var t);
-        Assert.AreEqual(216f, t.wx0, 1e-3);
+        Assert.AreEqual(216.0, t.wx0, 1e-9);
         Assert.AreEqual(RivalPhase.Climb, t.lockPhase);
         Assert.AreEqual(1, t.lockSide);                     // 웹 값 (seed 3은 오른쪽 뒤)
         Assert.AreEqual(-sim.Stairs.DirAt(t.stepsAtLock - 1), t.lockSide);
@@ -160,12 +192,12 @@ public class ParityTests
         var sim = RivalScenario(4, Enumerable.Range(70, 9).ToArray(), 0, out var t);   // 잠기기 직전에 9칸을 몰아 오른다
         Assert.AreEqual(39, t.stepsAtLock);
         Assert.AreEqual(RivalPhase.Climb, t.lockPhase);
-        Assert.AreEqual(38f, t.lockRi, 1e-3);
+        Assert.AreEqual(38.0, t.lockRi, 1e-9);
         Assert.AreEqual(-1, t.lockSide);
         Assert.AreEqual(-sim.Stairs.DirAt(38), t.lockSide);
-        Assert.AreEqual(121, t.lockTick, 2);                // 웹 121 (원래 79에서 밀림)
-        Assert.AreEqual(2.3f, t.lockImpact, 0.04f);         // 웹 2.30초 (원래 1.62초)
-        Assert.AreEqual(139, t.doneTick, 2);
+        Assert.AreEqual(121, t.lockTick);                   // 웹 121 (원래 79에서 밀림)
+        Assert.AreEqual(2.3, t.lockImpact, 1e-9);           // 웹 2.30초 (원래 1.62초)
+        Assert.AreEqual(139, t.doneTick);
         Assert.AreEqual(2, sim.hearts);
     }
 

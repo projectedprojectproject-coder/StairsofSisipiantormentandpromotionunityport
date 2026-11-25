@@ -2,6 +2,7 @@
 // 웹의 rect/frameRect/txt/drawSprite(hud_icons)를 그대로 옮겨 쓸 수 있게 했다.
 using System;
 using UnityEngine;
+using UnityEngine.EventSystems;
 using UnityEngine.UI;
 
 namespace Stairs.Game
@@ -102,7 +103,7 @@ namespace Stairs.Game
             public void SetFocus(bool f)
             {
                 fill.color = red ? (f ? RedHi : Red) : (f ? Green : Gray);
-                foreach (var g in frame.GetComponentsInChildren<Image>()) g.color = f ? Ink : Bg;
+                foreach (var g in frame.GetComponentsInChildren<Image>(true)) g.color = f ? Ink : Bg;
                 label.color = f && !red ? Bg : Ink;
             }
         }
@@ -117,7 +118,14 @@ namespace Stairs.Game
             b.label = Label(b.fill.transform, text, w / 2, h / 2 + 0.5f, size, Ink, TextAnchor.MiddleCenter, false, w);
             b.button = b.fill.gameObject.AddComponent<Button>();
             b.button.transition = Selectable.Transition.None;
-            b.button.onClick.AddListener(() => b.onClick?.Invoke());
+            // 키보드는 GameController가 직접 다룬다. EventSystem이 버튼을 "선택"해 두면 Enter가 Submit으로 한 번 더 눌려
+            // (클릭한 뒤 Enter → 두 번 실행) 갈팡질팡했으므로, 방향키 이동을 끄고 눌린 뒤 선택을 바로 푼다
+            b.button.navigation = new Navigation { mode = Navigation.Mode.None };
+            b.button.onClick.AddListener(() =>
+            {
+                if (EventSystem.current) EventSystem.current.SetSelectedGameObject(null);
+                b.onClick?.Invoke();
+            });
             b.SetFocus(false);
             return b;
         }
