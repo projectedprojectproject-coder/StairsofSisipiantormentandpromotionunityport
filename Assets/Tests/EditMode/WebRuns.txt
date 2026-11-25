@@ -118,6 +118,7 @@ parry ok combo=28 x10
 floor 41
 paper spawn
 rival lock stairs
+rival wait 244
 floor 42
 parry ok combo=29 x10
 parry ok combo=30 x10
@@ -169,6 +170,7 @@ cue coffee
 coffee dodged
 floor 58
 rival spawn
+rival wait 343
 floor 59
 stapler spawn
 rival lock stairs
@@ -426,6 +428,7 @@ floor 41
 rival spawn
 parry ok combo=18 x7
 floor 42
+rival wait 244
 rival lock stairs
 parry ok combo=19 x7
 floor 43
@@ -635,6 +638,7 @@ gaze warn
 floor 99
 parry ok combo=9 x4
 rival spawn
+rival wait 590
 airplane spawn
 floor 100
 finish 100F
@@ -816,12 +820,13 @@ floor 66
 parry ok combo=42 x10
 rival spawn
 floor 67
-rival lock stairs
+rival wait 395
 floor 68
 paper spawn
 parry ok combo=43 x10
-parry ok combo=44 x10
 floor 69
+rival lock stairs
+parry ok combo=44 x10
 coffee spawn
 floor 70
 cue coffee
@@ -939,11 +944,12 @@ floor 4
 parry ok combo=1 x1
 floor 5
 rival spawn
+rival wait 25
 floor 6
-rival lock stairs
 floor 7
-parry ok combo=2 x1
+rival lock stairs
 airplane spawn
+parry ok combo=2 x1
 floor 8
 parry ok combo=3 x2
 floor 9
@@ -1403,3 +1409,19 @@ clipboard spawn
 heart -1 (attack) hearts=0
 gameover hearts
 end hearts 1 50 0 0 5
+run scene 7 356:3.6 300
+rival spawn
+rival wait 355
+rival lock stairs
+heart -1 (attack) hearts=2
+end - 60 0 2 0 356
+run scene 7 212:0 240
+rival spawn
+rival lock stairs
+rival fall cracked
+end - 36 50 3 0 212
+run scene 7 326:0 240
+rival spawn
+rival lock stairs
+rival fall cracked
+end - 55 50 3 0 326

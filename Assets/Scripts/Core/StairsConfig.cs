@@ -48,6 +48,8 @@ namespace Stairs.Core
         public float rivalLeap = 0.3f;        // 치기 직전 플레이어 칸으로 뛰어오르는 시간(초). 이때 막을 쪽이 정해진다
         public float rivalSpeed = 240f;       // 층 바닥을 걷는 속도(논리 px/초)
         public float rivalClimb = 10f;        // 계단을 오르는 속도(칸/초). 플레이어보다 빠르다
+        public float rivalCrackTime = 0.8f;   // 금 간 칸에 이만큼(초) 서 있으면 무너져 떨어진다 (플레이어보다 무겁다)
+        public float rivalVanishWait = 0.5f;  // 사라지기까지 이만큼(초)도 안 남은 칸에는 올라서지 않고 기다린다
         public bool showRivalCameo = true;    // 경쟁 사원이 공격하기 전 층(rivalFromFloor 미만)의 장식
 
         // ---- 기획서 미정 ----

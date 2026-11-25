@@ -36,6 +36,8 @@ namespace Stairs.Core
         public double wx;         // 걷기·서 있기: 층 바닥 위 가로 위치(월드 px)
         public double ri;         // 오르기: 계단 칸 번호(소수)
         public int floorStep;     // 걸어 들어오는 층 바닥의 칸 번호 (가장 가까운 층 바닥, 위 또는 아래)
+        public bool waiting;      // 다음 칸의 계단 장애물 앞에서 기다리는 중 (머리 위 "…")
+        public double crackT, escT;   // 지금 칸(금 간 칸·에스컬레이터)에 서 있은 시간
 
         public bool IsRival => type == ThreatType.Rival;
         /// <summary>웹의 p.locked !== false: 경쟁 사원이 아니면 늘 true, 경쟁 사원은 막을 쪽이 정해진 뒤에만 true.</summary>
@@ -48,6 +50,8 @@ namespace Stairs.Core
     public sealed class FloatText { public string s, color; public double x, y, t; }
     /// <summary>치고 물러나는 경쟁 사원 (웹의 leavers). 월드 좌표.</summary>
     public sealed class Leaver { public int side; public double t0, wx, wy; }
+    /// <summary>계단 장애물에 당한 경쟁 사원 (웹의 fallers). kind = shock·vanish·cracked. 월드 좌표.</summary>
+    public sealed class Faller { public int side; public double t0, wx, wy; public string kind; }
 
     public sealed class RunResult
     {
@@ -79,6 +83,7 @@ namespace Stairs.Core
         public readonly List<Threat> threats = new List<Threat>();
         public readonly List<Spark> sparks = new List<Spark>();
         public readonly List<Leaver> leavers = new List<Leaver>();
+        public readonly List<Faller> fallers = new List<Faller>();
         public readonly List<FloatText> texts = new List<FloatText>();
         /// <summary>웹 PLAYER_Y: 플레이어 발이 화면 위에서 128px.</summary>
         public const double PlayerY = 128;
@@ -352,8 +357,18 @@ namespace Stairs.Core
             }
             else if (p.ri < steps - 1)
             {
-                p.ri = Math.Min(steps - 1, p.ri + D(C.rivalClimb) * dt);   // 계단을 따라 쫓아 오른다
+                // 계단을 따라 쫓아 오른다. 다음 칸이 사라졌거나(곧 사라지거나) 전기가 흐르면(곧 흐르면) 그 앞 칸에서 기다린다
+                double nr = Math.Min(steps - 1, p.ri + D(C.rivalClimb) * dt);
+                int c = (int)Math.Floor(nr + 1e-6);
+                bool was = p.waiting;
+                p.waiting = false;
+                if (c > (int)Math.Floor(p.ri + 1e-6) && nr > c + 1e-9 && RivalBlocked(c + 1)) { nr = c; p.waiting = true; }
+                else if (Math.Abs(p.ri - JsRound(p.ri)) < 1e-6 && RivalBlocked(JsRound(p.ri) + 1)) { nr = p.ri; p.waiting = true; }
+                if (p.waiting && !was) Log?.Invoke("rival wait " + (JsRound(nr) + 1));
+                p.ri = nr;
             }
+            else p.waiting = false;
+            if (p.phase == RivalPhase.Climb && RivalTileHazards(p, dt)) return;   // 계단 장애물에 당했다 (떨어짐·감전)
             bool ready = p.phase == RivalPhase.Stand || (p.phase == RivalPhase.Climb && p.ri >= steps - 1 - 1e-6);
             if (p.locked) return;
             if (p.phase == RivalPhase.Climb && ready) p.side = -Stairs.DirAt(steps - 1);   // 바로 뒤 칸: 플레이어가 온 쪽
@@ -362,6 +377,40 @@ namespace Stairs.Core
                 if (ready) { p.locked = true; Log?.Invoke("rival lock " + (p.phase == RivalPhase.Climb ? "stairs" : "floor")); }
                 else p.impactT = time + D(C.rivalLeap);                  // 아직 따라잡지 못했다: 붙을 때까지 치지 않는다
             }
+        }
+
+        // ------------------------------------------------------------ 경쟁 사원 × 계단 장애물 (웹 rivalBlocked/rivalTileHazards)
+        /// <summary>경쟁 사원이 n번 칸에 올라서지 않고 기다리는지.</summary>
+        bool RivalBlocked(int n)
+        {
+            var vs = Vanish(); var sh = Stairs.Shock(time);
+            return (Stairs.IsVanish(n) && (vs.gone || vs.goneIn < D(C.rivalVanishWait))) || (Stairs.IsWet(n) && (sh.live || sh.warn));
+        }
+
+        /// <summary>경쟁 사원이 서 있는 칸의 장애물. 당하면 true (그 경쟁 사원은 치지 못하고 사라진다).</summary>
+        bool RivalTileHazards(Threat p, double dt)
+        {
+            int i = JsRound(p.ri);
+            if (Math.Abs(p.ri - i) > 1e-6) { p.crackT = 0; p.escT = 0; return false; }   // 칸 사이를 지나는 중
+            string kind = null;
+            if (Stairs.IsWet(i) && Stairs.Shock(time).live) kind = "shock";
+            else if (Stairs.IsVanish(i) && Vanish().gone) kind = "vanish";
+            if (Stairs.IsCracked(i)) { p.crackT += dt; if (kind == null && p.crackT >= D(C.rivalCrackTime)) kind = "cracked"; } else p.crackT = 0;
+            if (Stairs.IsEscalator(i))                                 // 에스컬레이터: 서 있으면 경쟁 사원도 밀려 내려간다
+            {
+                p.escT += dt;
+                if (p.escT >= D(C.escalatorPush) && i > p.floorStep) { p.escT = 0; p.ri = i - 1; Log?.Invoke("rival pushed"); }
+            }
+            else p.escT = 0;
+            if (kind == null) return false;
+            p.done = true;
+            var rp = RivalPos(p);
+            fallers.Add(new Faller { wx = rp.x, wy = rp.y, t0 = time, kind = kind, side = p.side });
+            score += C.parryPoints;                                    // 덤 점수 (콤보는 그대로)
+            Log?.Invoke(kind == "shock" ? "rival shock" : "rival fall " + kind);
+            Sfx?.Invoke(kind == "shock" ? "sfx_electric" : "sfx_stair_crack");
+            AddText(kind == "shock" ? "경쟁 사원 감전!" : "경쟁 사원 추락!", 160 + (rp.x - camX), PlayerY + (rp.y - camY) - 30, "green");
+            return true;
         }
 
         static readonly Dictionary<ThreatType, (string id, double lead)> Cues = new Dictionary<ThreatType, (string id, double lead)>
@@ -387,6 +436,7 @@ namespace Stairs.Core
             foreach (var x in texts) { x.t += dt; x.y -= 14 * dt; }
             texts.RemoveAll(x => x.t >= 0.8);
             leavers.RemoveAll(l => time - l.t0 >= 0.5);
+            fallers.RemoveAll(f => time - f.t0 >= 0.8);
             if (C.showRivalCameo && rivalIdx < steps - 3) rivalIdx = steps + 8 + (int)Math.Floor(decor.Next() * 6);
 
             if (Ended) { endTimer -= dt; return endTimer <= 0; }

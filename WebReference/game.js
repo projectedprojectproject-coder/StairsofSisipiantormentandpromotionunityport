@@ -55,6 +55,8 @@ const CONFIG = {
   gazeSweep: 1.5,          // 결정: 1.5초 동안 화면 끝에서 끝까지 훑는다
   gazeRest: 6.0,           // 기획서 미정: 다음 예고까지 쉬는 시간(초)
   gazeWidth: 80,           // 기획서 미정: 빨간 시선의 폭(px)
+  rivalCrackTime: 0.8,     // 기획서 미정: 경쟁 사원이 금 간 칸에 이만큼(초) 서 있으면 무너져 떨어진다 (플레이어보다 무겁다)
+  rivalVanishWait: 0.5,    // 기획서 미정: 경쟁 사원은 사라지기까지 이만큼(초)도 안 남은 칸에는 올라서지 않고 기다린다
   suitcaseBurst: 0.1,      // 결정: 도착 몇 초 전에 터지는지. 판정 창(도착 전 0.2초)의 한가운데 = 터지는 순간
   coffeeFromFloor: 11,     // 결정(2026-11-20): 11층부터 커피. 결재판처럼 날아오지만 막으면 안 된다(막으면 하트 -1, 그냥 두면 지나감)
   weightCoffee: 0.5,       // 기획서 미정
@@ -458,7 +460,7 @@ function makeRun(seed, mode) {
     botT: 0, ended: null, endTimer: 0, rivalIdx: 8,
     crackT: 0, nextFlash: CONFIG.flashGap, camFlash: null, shockCycle: -1,
     mode: mode, hits: 0, forceType: null,
-    escT: 0, gazeT0: null, gazeHitCycle: -1, gazeKey: -1, vanishPhase: 0, held: [false, false],   // 새 장애물 상태, held = Q·E를 누르고 있는지
+    escT: 0, gazeT0: null, gazeHitCycle: -1, gazeKey: -1, vanishPhase: 0, held: [false, false], fallers: [],   // fallers: 계단 장애물에 당한 경쟁 사원   // 새 장애물 상태, held = Q·E를 누르고 있는지
   };
   if (mode === 'practice') {                   // 연습: 층 바닥이 있는 칸에 서서 시작, 카메라도 바로 그 자리
     r.steps = (CONFIG.practiceFloor - 1) * CONFIG.stairsPerFloor; r.floor = CONFIG.practiceFloor;
@@ -682,8 +684,17 @@ function updateRival(p, dt) {
     p.phase = Math.abs(tx - p.wx) < 0.5 ? (above ? 'climb' : 'stand') : 'walk';
     if (p.phase === 'climb') p.ri = p.floorStep;
   } else if (p.ri < r.steps - 1) {
-    p.ri = Math.min(r.steps - 1, p.ri + CONFIG.rivalClimb * dt);   // 계단을 따라 쫓아 오른다
-  }
+    // 계단을 따라 쫓아 오른다. 다음 칸이 사라졌거나(곧 사라지거나) 전기가 흐르면(곧 흐르면) 그 앞 칸에서 기다린다
+    let nr = Math.min(r.steps - 1, p.ri + CONFIG.rivalClimb * dt);
+    const c = Math.floor(nr + 1e-6);
+    const was = p.waiting;
+    p.waiting = false;
+    if (c > Math.floor(p.ri + 1e-6) && nr > c + 1e-9 && rivalBlocked(r, c + 1)) { nr = c; p.waiting = true; }
+    else if (Math.abs(p.ri - Math.round(p.ri)) < 1e-6 && rivalBlocked(r, Math.round(p.ri) + 1)) { nr = p.ri; p.waiting = true; }
+    if (p.waiting && !was) log('rival wait ' + (Math.round(nr) + 1));
+    p.ri = nr;
+  } else p.waiting = false;
+  if (p.phase === 'climb' && rivalTileHazards(p, dt)) return;      // 계단 장애물에 당했다 (떨어짐·감전)
   const ready = p.phase === 'stand' || (p.phase === 'climb' && p.ri >= r.steps - 1 - 1e-6);
   if (p.locked) return;
   if (p.phase === 'climb' && ready) p.side = -dirAt(r.steps - 1);   // 바로 뒤 칸: 플레이어가 온 쪽
@@ -691,6 +702,32 @@ function updateRival(p, dt) {
     if (ready) { p.locked = true; log('rival lock ' + (p.phase === 'climb' ? 'stairs' : 'floor')); }
     else p.impactT = r.time + CONFIG.rivalLeap;                    // 아직 따라잡지 못했다: 붙을 때까지 치지 않는다
   }
+}
+// 경쟁 사원 × 계단 장애물
+function rivalBlocked(r, n) {   // 경쟁 사원이 n번 칸에 올라서지 않고 기다리는지
+  const vs = vanishState(r), sh = shockState(r.time);
+  return (isVanish(n) && (vs.gone || vs.goneIn < CONFIG.rivalVanishWait)) || (isWet(n) && (sh.live || sh.warn));
+}
+function rivalTileHazards(p, dt) {   // 경쟁 사원이 서 있는 칸의 장애물. 당하면 true (그 경쟁 사원은 치지 못하고 사라진다)
+  const r = run, i = Math.round(p.ri);
+  if (Math.abs(p.ri - i) > 1e-6) { p.crackT = 0; p.escT = 0; return false; }   // 칸 사이를 지나는 중
+  let kind = null;
+  if (isWet(i) && shockState(r.time).live) kind = 'shock';
+  else if (isVanish(i) && vanishState(r).gone) kind = 'vanish';
+  if (isCracked(i)) { p.crackT = (p.crackT || 0) + dt; if (!kind && p.crackT >= CONFIG.rivalCrackTime) kind = 'cracked'; } else p.crackT = 0;
+  if (isEscalator(i)) {                                    // 에스컬레이터: 서 있으면 경쟁 사원도 밀려 내려간다
+    p.escT = (p.escT || 0) + dt;
+    if (p.escT >= CONFIG.escalatorPush && i > p.floorStep) { p.escT = 0; p.ri = i - 1; log('rival pushed'); }
+  } else p.escT = 0;
+  if (!kind) return false;
+  p.done = true;
+  const rp = rivalPos(p);
+  r.fallers.push({ wx: rp.x, wy: rp.y, t0: r.time, kind: kind, side: p.side });
+  r.score += CONFIG.parryPoints;                           // 덤 점수 (콤보는 그대로)
+  log(kind === 'shock' ? 'rival shock' : 'rival fall ' + kind);
+  sfx(kind === 'shock' ? 'sfx_electric' : 'sfx_stair_crack');
+  addText(kind === 'shock' ? '경쟁 사원 감전!' : '경쟁 사원 추락!', 160 + (rp.x - r.camX), PLAYER_Y + (rp.y - r.camY) - 30, PAL.green);
+  return true;
 }
 function botTick(dt) {
   const r = run;
@@ -737,6 +774,7 @@ function updatePlay(dt) {
   r.texts.forEach(function (t) { t.t += dt; t.y -= 14 * dt; });
   r.texts = r.texts.filter(function (t) { return t.t < 0.8; });
   r.leavers = r.leavers.filter(function (l) { return r.time - l.t0 < 0.5; });
+  r.fallers = r.fallers.filter(function (f) { return r.time - f.t0 < 0.8; });
   if (CONFIG.showRivalCameo && r.rivalIdx < r.steps - 3) r.rivalIdx = r.steps + 8 + Math.floor(r.decor() * 6);
 
   if (r.ended) {
@@ -1296,6 +1334,20 @@ function drawPlayWorld() {
     drawSprite('rival', 'default', 'leave', r.time - l.t0, sx(l.wx) + l.side * k * 90, sy(l.wy), { fw: 14, fh: 26, color: PAL.red, flip: l.side < 0 });
     ctx.globalAlpha = 1;
   });
+  r.fallers.forEach(function (f) {   // 계단 장애물에 당한 경쟁 사원: 감전은 하얗게 떨다 사라지고, 떨어지면 돌며 아래로
+    const t = r.time - f.t0, k = t / 0.8, o = { fw: 14, fh: 26, color: PAL.red, flip: f.side < 0 };
+    if (f.kind === 'shock') {
+      ctx.globalAlpha = clamp(1 - k, 0, 1);
+      drawSprite('rival', 'default', 'walk', 0, sx(f.wx) + Math.sin(t * 80) * 1.5, sy(f.wy), o);
+      ctx.globalAlpha = 1;
+      if (Math.floor(t * 20) % 2) rect(sx(f.wx) - 8, sy(f.wy) - 26, 16, 26, '#9FE0FF', 0.5 * (1 - k));
+    } else {
+      ctx.globalAlpha = clamp(1 - k * 0.8, 0, 1);
+      o.rot = f.side * t * 6;
+      drawSprite('rival', 'default', 'walk', 0, sx(f.wx) + f.side * 20 * t, sy(f.wy) + 160 * t * t, o);
+      ctx.globalAlpha = 1;
+    }
+  });
   r.projs.forEach(function (p) {
     if (p.type === 'rival') {
       // 층 바닥 위를 걸어 들어오고, 플레이어가 더 높이 있으면 계단을 따라 쫓아 오른다. 붙으면 플레이어 칸으로 덤벼 친다
@@ -1306,6 +1358,7 @@ function drawPlayWorld() {
         x = lerp(x, px + p.side * 12, k); y = lerp(y, PLAYER_Y + 1, k) - Math.sin(k * Math.PI) * 8; anim = 'attack';
       }
       drawSprite('rival', 'default', anim, at, x, y, { fw: 14, fh: 26, color: PAL.red, flip: x > px });
+      if (p.waiting) txt('…', x, y - 30, { align: 'center', base: 'middle', size: 9, bold: true, color: '#E3B65C' });   // 계단 장애물 앞에서 기다리는 중
       if (r.time >= p.spawnT) {
         const wk = drawSprite('warning', 'default', 'blink', r.time - p.spawnT, x, y - 35, { anchor: 'c', fw: 8, fh: 12, nofb: true });
         if (!wk && Math.floor(time * 8) % 2 === 0) { rect(x - 5, y - 42, 10, 14, PAL.red); txt('!', x, y - 35, { align: 'center', base: 'middle', size: 10, bold: true, shadow: false }); }
@@ -1556,6 +1609,8 @@ const DEMOS = [
   { id: 'escalator', name: '내려가는 에스컬레이터', how: '쇠빛 칸에 가만히 서 있으면 아래로 밀려요. 쉬지 말고 지나가기', at: 205, climb: [1.6, 1.95, 2.3, 2.65], dur: 3.4 },
   { id: 'shock', name: '젖은 계단', how: '불꽃이 튀면 멈추고, 전기가 흐르고 난 뒤에 건너기 (3초마다 감전)', at: 188, wait: 'wet' },
   { id: 'vanish', name: '사라지는 칸', how: '하늘색 선 칸은 5초 있다가 1초 없어져요. 깜박이면 기다렸다가 다시 생기면 건너기', at: 261, wait: 'vanish', vanishPhase: 3.8 },
+  { id: 'rivalwait', name: '경쟁 사원과 사라지는 칸', how: '경쟁 사원도 사라지는 칸·전기가 흐르는 칸 앞에서는 멈춰 기다려요', at: 356, threat: 'rival', vanishPhase: 3.6 },
+  { id: 'rivalcrack', name: '경쟁 사원과 금 간 칸', how: '경쟁 사원은 금 간 칸에 0.8초만 서 있어도 떨어지고, 젖은 칸에서 전기가 흐르면 감전돼요', at: 212, threat: 'rival' },
   { id: 'gaze', name: '상사의 눈', how: '눈이 뜨고 5초 뒤 빨간 시선이 1.5초 동안 훑어요. 시선이 지나갈 때는 오르지 않기', at: 402, wait: 'gaze', gazeT0: -3.6 },
   { id: 'flash', name: '카메라 플래시', how: '막을 수 없지만 피해도 없어요. 눈이 부셔도 계속 오르세요', at: 372, flash: 0.8, climb: [1.5, 1.85, 2.2], dur: 3.2 },
 ];
@@ -1630,6 +1685,7 @@ function demoUpdate(dt) {
       if (sc.hp) r.projs[0].hp = sc.hp;
     }
     if (sc.flash && r.camFlash) r.nextFlash = 1e9;
+    d.rivalWait = r.projs.some(function (p) { return p.type === 'rival' && p.waiting; });   // 경쟁 사원이 계단 장애물 앞에서 기다리는 중
     if (sc.threat && d.spawned && !r.projs.length && d.doneAt === null) d.doneAt = r.time + 1.0;
     r.hearts = CONFIG.maxHearts; r.days = CONFIG.maxDays;            // 장면은 끝나지 않는다
     if (d.doneAt !== null && r.time >= d.doneAt) demoStart(d.idx + 1);
@@ -1650,6 +1706,7 @@ function drawDemo() {
   }
   if (time < d.holdUntil) txt('누르지 마세요!', 160, 146, { align: 'center', base: 'middle', size: 7, bold: true, color: PAL.red });
   if (d.waiting) txt('기다리기…', 160, 146, { align: 'center', base: 'middle', size: 7, bold: true, color: '#E3B65C' });
+  else if (d.rivalWait && time >= d.nowUntil) txt('경쟁 사원도 기다려요', 160, 146, { align: 'center', base: 'middle', size: 7, bold: true, color: '#E3B65C' });
   drawButtons();
 }
 

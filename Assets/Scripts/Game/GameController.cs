@@ -773,6 +773,25 @@ namespace Stairs.Game
                 DrawSprite("rival", "default", "leave", r.time - l.t0, SX(l.wx) + l.side * k * 90, SY(l.wy), new SO { fw = 14, fh = 26, color = PalRed, flip = l.side < 0 });
                 cv.globalAlpha = 1;
             }
+            foreach (var f in r.fallers)   // 계단 장애물에 당한 경쟁 사원: 감전은 하얗게 떨다 사라지고, 떨어지면 돌며 아래로
+            {
+                double t = r.time - f.t0, k = t / 0.8;
+                var o = new SO { fw = 14, fh = 26, color = PalRed, flip = f.side < 0 };
+                if (f.kind == "shock")
+                {
+                    cv.globalAlpha = (float)Clamp(1 - k, 0, 1);
+                    DrawSprite("rival", "default", "walk", 0, SX(f.wx) + Math.Sin(t * 80) * 1.5, SY(f.wy), o);
+                    cv.globalAlpha = 1;
+                    if (Math.Floor(t * 20) % 2 != 0) Rect(SX(f.wx) - 8, SY(f.wy) - 26, 16, 26, "#9FE0FF", 0.5 * (1 - k));
+                }
+                else
+                {
+                    cv.globalAlpha = (float)Clamp(1 - k * 0.8, 0, 1);
+                    o.rot = f.side * t * 6;
+                    DrawSprite("rival", "default", "walk", 0, SX(f.wx) + f.side * 20 * t, SY(f.wy) + 160 * t * t, o);
+                    cv.globalAlpha = 1;
+                }
+            }
             double burst = D(C.suitcaseBurst), warnTime = D(C.warnTime), leap = D(C.rivalLeap);
             foreach (var p in r.threats)
             {
@@ -787,6 +806,7 @@ namespace Stairs.Game
                         rx = Lerp(rx, ppx + p.side * 12, k); ry = Lerp(ry, PLAYER_Y + 1, k) - Math.Sin(k * Math.PI) * 8; ranim = "attack";
                     }
                     DrawSprite("rival", "default", ranim, at0, rx, ry, new SO { fw = 14, fh = 26, color = PalRed, flip = rx > ppx });
+                    if (p.waiting) Txt("…", rx, ry - 30, T(9, "center", "middle", true, Hex("#E3B65C")));   // 계단 장애물 앞에서 기다리는 중
                     if (r.time >= p.spawnT)
                     {
                         bool wk = DrawSprite("warning", "default", "blink", r.time - p.spawnT, rx, ry - 35, new SO { anchor = "c", fw = 8, fh = 12, nofb = true });
@@ -1058,7 +1078,7 @@ namespace Stairs.Game
         sealed class Demo
         {
             public int idx, ci, nowKey; public RunSimulation run; public string animState = ""; public double animStart;
-            public double? doneAt, crossed; public bool spawned, sawLive, waiting; public double nowUntil, holdUntil; public string nowText = "지금!";
+            public double? doneAt, crossed; public bool spawned, sawLive, waiting, rivalWait; public double nowUntil, holdUntil; public string nowText = "지금!";
         }
         const int DemoSeed = 7;
         static readonly DemoScene[] Demos =
@@ -1078,6 +1098,8 @@ namespace Stairs.Game
             new DemoScene { id = "escalator", name = "내려가는 에스컬레이터", how = "쇠빛 칸에 가만히 서 있으면 아래로 밀려요. 쉬지 말고 지나가기", at = 205, climb = new[] { 1.6, 1.95, 2.3, 2.65 }, dur = 3.4 },
             new DemoScene { id = "shock", name = "젖은 계단", how = "불꽃이 튀면 멈추고, 전기가 흐르고 난 뒤에 건너기 (3초마다 감전)", at = 188, wait = "wet" },
             new DemoScene { id = "vanish", name = "사라지는 칸", how = "하늘색 선 칸은 5초 있다가 1초 없어져요. 깜박이면 기다렸다가 다시 생기면 건너기", at = 261, wait = "vanish", vanishPhase = 3.8 },
+            new DemoScene { id = "rivalwait", name = "경쟁 사원과 사라지는 칸", how = "경쟁 사원도 사라지는 칸·전기가 흐르는 칸 앞에서는 멈춰 기다려요", at = 356, threat = ThreatType.Rival, vanishPhase = 3.6 },
+            new DemoScene { id = "rivalcrack", name = "경쟁 사원과 금 간 칸", how = "경쟁 사원은 금 간 칸에 0.8초만 서 있어도 떨어지고, 젖은 칸에서 전기가 흐르면 감전돼요", at = 212, threat = ThreatType.Rival },
             new DemoScene { id = "gaze", name = "상사의 눈", how = "눈이 뜨고 5초 뒤 빨간 시선이 1.5초 동안 훑어요. 시선이 지나갈 때는 오르지 않기", at = 402, wait = "gaze", gazeT0 = -3.6 },
             new DemoScene { id = "flash", name = "카메라 플래시", how = "막을 수 없지만 피해도 없어요. 눈이 부셔도 계속 오르세요", at = 372, flash = 0.8, climb = new[] { 1.5, 1.85, 2.2 }, dur = 3.2 },
         };
@@ -1172,6 +1194,7 @@ namespace Stairs.Game
                     if (sc.hp > 0) r.threats[0].hp = sc.hp;
                 }
                 if (sc.flash.HasValue && r.flashing) r.nextFlash = 1e9;
+                d.rivalWait = r.threats.Exists(p => p.IsRival && p.waiting);   // 경쟁 사원이 계단 장애물 앞에서 기다리는 중
                 if (sc.threat.HasValue && d.spawned && r.threats.Count == 0 && d.doneAt == null) d.doneAt = r.time + 1.0;
                 r.hearts = C.maxHearts; r.days = D(C.maxDays);                   // 장면은 끝나지 않는다
                 if (d.doneAt != null && r.time >= d.doneAt.Value) DemoStart(d.idx + 1);
@@ -1195,6 +1218,7 @@ namespace Stairs.Game
             }
             if (time < d.holdUntil) Txt("누르지 마세요!", 160, 146, T(7, "center", "middle", true, PalRed));
             if (d.waiting) Txt("기다리기…", 160, 146, T(7, "center", "middle", true, Hex("#E3B65C")));
+            else if (d.rivalWait && time >= d.nowUntil) Txt("경쟁 사원도 기다려요", 160, 146, T(7, "center", "middle", true, Hex("#E3B65C")));
             DrawButtons();
         }
 

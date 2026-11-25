@@ -101,7 +101,7 @@ public class ParityTests
     // WebRuns.txt = 웹 game.js를 node에서 돌린 사건 기록 (Tools~/web_expect.js가 만든다). 봇 판(보통 3·무한·연습)과
     // 사람 흉내(오르기만, 가만히, 틀린 쪽, 느리게)를 같은 입력으로 C# Core에 넣고, 공격·패링·하트·층·새 장애물 사건과 끝 상태를 맞대어 본다.
     static readonly System.Text.RegularExpressions.Regex Keep = new System.Text.RegularExpressions.Regex(
-        @"spawn$|rival lock|parry ok|heart|^floor \d|promote|gameover|shock hit|crack fall|finish|coffee|sticky bounce|wrong direction|stapler return|airplane miss|escalator push|vanish fall|gaze (caught|start|warn|sweep)|hit \(");
+        @"spawn$|rival lock|parry ok|heart|^floor \d|promote|gameover|shock hit|crack fall|finish|coffee|sticky bounce|wrong direction|stapler return|airplane miss|escalator push|vanish fall|gaze (caught|start|warn|sweep)|rival (wait|fall|shock|pushed)|hit \(");
 
     sealed class WebRun { public string mode, policy, end; public int seed, ticks; public readonly List<string> events = new List<string>(); }
 
@@ -129,15 +129,23 @@ public class ParityTests
     public void WebRuns_MatchFrameForFrame()
     {
         var runs = LoadWebRuns();
-        Assert.GreaterOrEqual(runs.Count, 10);
+        Assert.GreaterOrEqual(runs.Count, 13);
         foreach (var w in runs)
         {
             var mode = w.mode == "endless" ? GameMode.Endless : w.mode == "practice" ? GameMode.Practice : GameMode.Normal;
             var sim = new RunSimulation(new StairsConfig(), w.seed, mode) { Bot = w.policy == "bot" };
+            bool scene = w.mode == "scene";
+            if (scene)
+            {   // 경쟁 사원 × 계단 장애물 장면: 그 칸에 서서 경쟁 사원 1명 (장애물 보기와 같은 판)
+                var f = w.policy.Split(':');
+                sim.steps = int.Parse(f[0]); sim.floor = sim.Stairs.FloorOfSteps(sim.steps); sim.facing = sim.Stairs.DirAt(sim.steps); sim.SnapCamera();
+                sim.nextAttack = 0.6; sim.forceType = ThreatType.Rival; sim.vanishPhase = double.Parse(f[1], System.Globalization.CultureInfo.InvariantCulture);
+            }
             var got = new List<string>();
             sim.Log += m => { if (Keep.IsMatch(m)) got.Add(m); };
             for (int k = 1; k <= w.ticks && !sim.Ended; k++)
             {
+                if (scene) { sim.Tick(RunSimulation.Step60); if (sim.forceType.HasValue && sim.threats.Count > 0) { sim.forceType = null; sim.nextAttack = 1e9; } continue; }
                 int d = 0;
                 if (w.policy == "climb" && k % 18 == 0) d = sim.Stairs.DirAt(sim.steps);
                 else if (w.policy == "wrong" && k % 30 == 0) d = -sim.Stairs.DirAt(sim.steps);
