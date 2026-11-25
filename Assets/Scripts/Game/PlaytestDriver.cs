@@ -66,6 +66,7 @@ namespace Stairs.Game
             gc.CloseDemo();
             gc.CloseHelp(); gc.CloseSettings();
             gc.GoLobby(); yield return new WaitForSecondsRealtime(0.5f); yield return Shot("04_lobby");
+            gc.OpenSettings(); yield return new WaitForSecondsRealtime(0.3f); yield return Shot("04_lobby_settings"); gc.CloseSettings();
 
             // 보통 모드: 봇이 100층까지 (seed+0)
             gc.bot = true; gc.StartRun(GameMode.Normal);
@@ -89,6 +90,8 @@ namespace Stairs.Game
             yield return Until(() => gc.screen == GameController.Screen.Result, 40);
             Line("가만히 있는 판: " + Describe(gc.result));
             yield return new WaitForSecondsRealtime(1.5f); yield return Shot("14_result_fired");
+            gc.OpenSettings(); yield return new WaitForSecondsRealtime(0.3f); yield return Shot("14_result_settings");
+            gc.OpenDemo("climb"); yield return new WaitForSecondsRealtime(1.3f); yield return Shot("14_result_settings_demo"); gc.CloseDemo(); gc.CloseSettings();
 
             // 연습 모드(seed+2), 무한 모드(seed+3), 봇
             gc.bot = true; gc.StartRun(GameMode.Practice);

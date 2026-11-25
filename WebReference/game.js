@@ -795,17 +795,18 @@ function getButtons() {
   if (helpOpen) return [btn('demo', '장애물 보기', 60, 146, 96, 14, function () { openDemo('climb'); }), btn('close', '닫기', 164, 146, 96, 14, closeHelp)];
   if (settingsOpen) {
     return [
-      btn('snd', Snd.muted ? '꺼짐' : '켜짐', 170, 42, 88, 14, function () { Snd.muted = !Snd.muted; syncAudio(true); }),
-      btn('vdn', '-', 170, 60, 24, 14, function () { Snd.vol = clamp(Math.round((Snd.vol - 0.1) * 10) / 10, 0, 1); syncAudio(true); }),
-      btn('vup', '+', 234, 60, 24, 14, function () { Snd.vol = clamp(Math.round((Snd.vol + 0.1) * 10) / 10, 0, 1); syncAudio(true); }),
-      btn('fs', '전체화면', 170, 78, 88, 14, function () {
+      btn('snd', Snd.muted ? '꺼짐' : '켜짐', 170, 34, 88, 14, function () { Snd.muted = !Snd.muted; syncAudio(true); }),
+      btn('vdn', '-', 170, 52, 24, 14, function () { Snd.vol = clamp(Math.round((Snd.vol - 0.1) * 10) / 10, 0, 1); syncAudio(true); }),
+      btn('vup', '+', 234, 52, 24, 14, function () { Snd.vol = clamp(Math.round((Snd.vol + 0.1) * 10) / 10, 0, 1); syncAudio(true); }),
+      btn('fs', '전체화면', 170, 70, 88, 14, function () {
         try {
           if (document.fullscreenElement) document.exitFullscreen();
           else { const p = document.documentElement.requestFullscreen(); if (p && p.catch) p.catch(function () {}); }
         } catch (e) {}
       }),
-      btn('help', '보기', 170, 104, 88, 14, openHelp),
-      btn('close', '닫기', 110, 136, 100, 16, closeSettings),
+      btn('help', '보기', 170, 96, 88, 14, openHelp),
+      btn('demo', '보기', 170, 114, 88, 14, function () { openDemo('climb'); }),   // 장애물 보기 (장애물마다 대처법 장면)
+      btn('close', '닫기', 110, 144, 100, 16, closeSettings),
     ];
   }
   switch (screen) {
@@ -819,6 +820,7 @@ function getButtons() {
         Object.assign(btn('work', '업무 시작', 104, 150, 112, 18, function () { startRun('normal'); }, 10), { tone: 'red' }),   // 05-2 요소 4 (ESC: 타이틀로)
         btn('endless', '무한 모드', 224, 150, 84, 18, function () { startRun('endless'); }, 8),
         btn('practice', '연습 모드', 12, 150, 84, 18, function () { startRun('practice'); }, 8),
+        Object.assign(btn('settings', '', 226, 5, 18, 18, openSettings), { icon: 'gear' }),   // 설정 (층 명판과 D-30 사이)
       ];
     case 'pause':
       return [
@@ -829,9 +831,9 @@ function getButtons() {
       ];
     case 'result':
       return [
-        Object.assign(btn('again', result && result.kind === 'promote' ? '1층부터 다시' : '다시 하기', 62, 155, 62, 16, function () { startRun(result ? result.mode : 'normal'); }, 8), { tone: 'red' }),   // 05-5 요소 5
-        btn('share', '기록 공유', 132, 155, 62, 16, shareResult, 8),                                                                                     // 요소 2
-        btn('demo', '대처법 보기', 202, 155, 62, 16, function () { openDemo(result ? (DEMO_OF_TIP[result.tip] || result.tip) : 'climb'); }, 8),   // 구조조정 팁을 움직이는 장면으로
+        Object.assign(btn('again', result && result.kind === 'promote' ? '1층부터 다시' : '다시 하기', 96, 155, 62, 16, function () { startRun(result ? result.mode : 'normal'); }, 8), { tone: 'red' }),   // 05-5 요소 5
+        btn('share', '기록 공유', 166, 155, 62, 16, shareResult, 8),                                                                                     // 요소 2
+        Object.assign(btn('settings', '', 298, 4, 18, 18, openSettings), { icon: 'gear' }),   // 설정 (장애물 보기도 여기서)
       ];
   }
   return [];
@@ -1299,15 +1301,16 @@ function drawPause() {
 }
 function drawSettings() {
   rect(0, 0, W, H, PAL.bg, 0.6);
-  rect(50, 22, 220, 136, PAL.bg, 0.97); frameRect(50, 22, 220, 136, PAL.gray);
-  txt('설정', 160, 27, { align: 'center', size: 10, bold: true });
-  txt('사운드', 62, 45, { size: 8 });
-  txt('볼륨', 62, 63, { size: 8 });
-  txt(Math.round(Snd.vol * 100) + '%', 214, 63, { align: 'center', size: 8 });
-  txt('화면', 62, 81, { size: 8 });
-  txt('배율 ×' + scale + ' (창 크기에 맞춰 자동)', 62, 96, { size: 7, color: PAL.green });
-  txt('조작법', 62, 107, { size: 8 });
-  txt('← → 이동 · Q E 패링 · ESC 일시정지 (키 변경 불가)', 62, 124, { size: 6, color: PAL.gray });
+  rect(50, 14, 220, 152, PAL.bg, 0.97); frameRect(50, 14, 220, 152, PAL.gray);
+  txt('설정', 160, 19, { align: 'center', size: 10, bold: true });
+  txt('사운드', 62, 37, { size: 8 });
+  txt('볼륨', 62, 55, { size: 8 });
+  txt(Math.round(Snd.vol * 100) + '%', 214, 55, { align: 'center', size: 8 });
+  txt('화면', 62, 73, { size: 8 });
+  txt('배율 ×' + scale + ' (창 크기에 맞춰 자동)', 62, 86, { size: 7, color: PAL.green });
+  txt('조작법', 62, 99, { size: 8 });
+  txt('장애물', 62, 117, { size: 8 });
+  txt('← → 이동 · Q E 패링 · ESC 일시정지 (키 변경 불가)', 62, 132, { size: 6, color: PAL.gray });
   drawButtons();
 }
 
@@ -1339,7 +1342,7 @@ function drawHelp() {
 
 /* ---------------------------------------------------------------------
  * 장애물 보기: 장애물마다 짧은 장면을 실제 규칙(updatePlay)으로 돌리고, 자동으로 맞는 키를 맞는 순간에 눌러 보여 준다.
- * 조작법 화면의 "장애물 보기", 결과 화면의 "대처법 보기"(마지막 원인의 장면부터)에서 연다. 기록·점수에는 남지 않는다.
+ * 설정 화면의 "장애물 · 보기"와 조작법 화면의 "장애물 보기"에서 연다 (설정은 타이틀·로비·일시정지·결과에서). 기록·점수에는 남지 않는다.
  * 장면은 따로 만든 판(demo.run, demo.st)에서 돌고, 돌리거나 그릴 때만 run/st/screen을 잠깐 바꿔 끼운다.
  * 칸 번호: 금 간·젖은 칸은 칸 번호로 정해진다 (171 금 감, 189 젖음, 204~209 와 372 근처는 안전)
  * ------------------------------------------------------------------- */
@@ -1358,7 +1361,6 @@ const DEMOS = [
   { id: 'shock', name: '젖은 계단', how: '불꽃이 튀면 멈추고, 전기가 흐르고 난 뒤에 건너기 (3초마다 감전)', at: 188, wet: true },
   { id: 'flash', name: '카메라 플래시', how: '막을 수 없지만 피해도 없어요. 눈이 부셔도 계속 오르세요', at: 372, flash: 0.8, climb: [1.5, 1.85, 2.2], dur: 3.2 },
 ];
-const DEMO_OF_TIP = { wrong: 'climb', days: 'climb' };   // 결과 팁 → 장면 (나머지는 같은 id)
 const DEMO_KEY_X = [114, 136, 166, 188];
 
 function openDemo(id) {

@@ -264,12 +264,13 @@ namespace Stairs.Game
             {
                 return new List<Btn>
                 {
-                    B("snd", audioDirector.muted ? "꺼짐" : "켜짐", 170, 42, 88, 14, () => { audioDirector.muted = !audioDirector.muted; SyncAudio(true); }),
-                    B("vdn", "-", 170, 60, 24, 14, () => { audioDirector.vol = Mathf.Clamp01(Mathf.Round((audioDirector.vol - 0.1f) * 10) / 10); SyncAudio(true); }),
-                    B("vup", "+", 234, 60, 24, 14, () => { audioDirector.vol = Mathf.Clamp01(Mathf.Round((audioDirector.vol + 0.1f) * 10) / 10); SyncAudio(true); }),
-                    B("fs", "전체화면", 170, 78, 88, 14, () => { UnityEngine.Screen.fullScreen = !UnityEngine.Screen.fullScreen; }),
-                    B("help", "보기", 170, 104, 88, 14, OpenHelp),
-                    B("close", "닫기", 110, 136, 100, 16, CloseSettings),
+                    B("snd", audioDirector.muted ? "꺼짐" : "켜짐", 170, 34, 88, 14, () => { audioDirector.muted = !audioDirector.muted; SyncAudio(true); }),
+                    B("vdn", "-", 170, 52, 24, 14, () => { audioDirector.vol = Mathf.Clamp01(Mathf.Round((audioDirector.vol - 0.1f) * 10) / 10); SyncAudio(true); }),
+                    B("vup", "+", 234, 52, 24, 14, () => { audioDirector.vol = Mathf.Clamp01(Mathf.Round((audioDirector.vol + 0.1f) * 10) / 10); SyncAudio(true); }),
+                    B("fs", "전체화면", 170, 70, 88, 14, () => { UnityEngine.Screen.fullScreen = !UnityEngine.Screen.fullScreen; }),
+                    B("help", "보기", 170, 96, 88, 14, OpenHelp),
+                    B("demo", "보기", 170, 114, 88, 14, () => OpenDemo("climb")),   // 장애물 보기 (장애물마다 대처법 장면)
+                    B("close", "닫기", 110, 144, 100, 16, CloseSettings),
                 };
             }
             switch (screen)
@@ -280,7 +281,8 @@ namespace Stairs.Game
                     return new List<Btn> { start, gear };
                 case Screen.Lobby:
                     var work = B("work", "업무 시작", 104, 150, 112, 18, () => StartRun(GameMode.Normal), 10); work.tone = "red";   // 05-2 요소 4 (ESC: 타이틀로)
-                    return new List<Btn> { work, B("endless", "무한 모드", 224, 150, 84, 18, () => StartRun(GameMode.Endless), 8), B("practice", "연습 모드", 12, 150, 84, 18, () => StartRun(GameMode.Practice), 8) };
+                    var lobbyGear = B("settings", "", 226, 5, 18, 18, OpenSettings); lobbyGear.icon = "gear";   // 설정 (층 명판과 D-30 사이)
+                    return new List<Btn> { work, B("endless", "무한 모드", 224, 150, 84, 18, () => StartRun(GameMode.Endless), 8), B("practice", "연습 모드", 12, 150, 84, 18, () => StartRun(GameMode.Practice), 8), lobbyGear };
                 case Screen.Pause:
                     return new List<Btn>
                     {
@@ -290,12 +292,9 @@ namespace Stairs.Game
                         B("main", "메인으로", 100, 120, 120, 14, () => { Debug.Log("[stairs] quit to title"); ToTitle(); }),
                     };
                 case Screen.Result:
-                    var again = B("again", result != null && result.promoted ? "1층부터 다시" : "다시 하기", 62, 155, 62, 16, () => StartRun(result != null ? result.mode : GameMode.Normal), 8); again.tone = "red";   // 05-5 요소 5
-                    return new List<Btn>
-                    {
-                        again, B("share", "기록 공유", 132, 155, 62, 16, () => DoShare(), 8),   // 요소 2
-                        B("demo", "대처법 보기", 202, 155, 62, 16, () => OpenDemo(result != null ? (DemoOfTip.TryGetValue(result.tip ?? "", out var dt) ? dt : result.tip) : "climb"), 8),   // 구조조정 팁을 움직이는 장면으로
-                    };
+                    var again = B("again", result != null && result.promoted ? "1층부터 다시" : "다시 하기", 96, 155, 62, 16, () => StartRun(result != null ? result.mode : GameMode.Normal), 8); again.tone = "red";   // 05-5 요소 5
+                    var resultGear = B("settings", "", 298, 4, 18, 18, OpenSettings); resultGear.icon = "gear";   // 설정 (장애물 보기도 여기서)
+                    return new List<Btn> { again, B("share", "기록 공유", 166, 155, 62, 16, () => DoShare(), 8), resultGear };   // 요소 2
             }
             return new List<Btn>();
         }
@@ -921,15 +920,16 @@ namespace Stairs.Game
         void DrawSettings()
         {
             Rect(0, 0, W, H, PalBg, 0.6);
-            Rect(50, 22, 220, 136, PalBg, 0.97); FrameRect(50, 22, 220, 136, PalGray);
-            Txt("설정", 160, 27, T(10, "center", bold: true));
-            Txt("사운드", 62, 45, T(8));
-            Txt("볼륨", 62, 63, T(8));
-            Txt(Math.Round(audioDirector.vol * 100, MidpointRounding.AwayFromZero) + "%", 214, 63, T(8, "center"));
-            Txt("화면", 62, 81, T(8));
-            Txt("배율 ×" + Num(scale) + " (창 크기에 맞춰 자동)", 62, 96, T(7, color: PalGreen));
-            Txt("조작법", 62, 107, T(8));
-            Txt("← → 이동 · Q E 패링 · ESC 일시정지 (키 변경 불가)", 62, 124, T(6, color: PalGray));
+            Rect(50, 14, 220, 152, PalBg, 0.97); FrameRect(50, 14, 220, 152, PalGray);
+            Txt("설정", 160, 19, T(10, "center", bold: true));
+            Txt("사운드", 62, 37, T(8));
+            Txt("볼륨", 62, 55, T(8));
+            Txt(Math.Round(audioDirector.vol * 100, MidpointRounding.AwayFromZero) + "%", 214, 55, T(8, "center"));
+            Txt("화면", 62, 73, T(8));
+            Txt("배율 ×" + Num(scale) + " (창 크기에 맞춰 자동)", 62, 86, T(7, color: PalGreen));
+            Txt("조작법", 62, 99, T(8));
+            Txt("장애물", 62, 117, T(8));
+            Txt("← → 이동 · Q E 패링 · ESC 일시정지 (키 변경 불가)", 62, 132, T(6, color: PalGray));
             DrawButtons();
         }
         void DrawHelp()
@@ -956,6 +956,7 @@ namespace Stairs.Game
 
         // ================================================================ 장애물 보기 (웹 DEMOS/openDemo/demoUpdate/drawDemo)
         // 장애물마다 짧은 장면을 실제 규칙(Tick)으로 돌리고, 자동으로 맞는 키를 맞는 순간에 눌러 보여 준다. 기록·점수에는 남지 않는다.
+        // 설정 화면의 "장애물 · 보기"와 조작법 화면의 "장애물 보기"에서 연다 (설정은 타이틀·로비·일시정지·결과에서).
         // 장면은 따로 만든 판(demo.run)에서 돌고, 돌리거나 그릴 때만 run/screen/플레이어 동작을 잠깐 바꿔 끼운다.
         // 칸 번호: 금 간·젖은 칸은 칸 번호로 정해진다 (171 금 감, 189 젖음, 204~209 와 372 근처는 안전)
         sealed class DemoScene
@@ -983,7 +984,6 @@ namespace Stairs.Game
             new DemoScene { id = "shock", name = "젖은 계단", how = "불꽃이 튀면 멈추고, 전기가 흐르고 난 뒤에 건너기 (3초마다 감전)", at = 188, wet = true },
             new DemoScene { id = "flash", name = "카메라 플래시", how = "막을 수 없지만 피해도 없어요. 눈이 부셔도 계속 오르세요", at = 372, flash = 0.8, climb = new[] { 1.5, 1.85, 2.2 }, dur = 3.2 },
         };
-        static readonly Dictionary<string, string> DemoOfTip = new Dictionary<string, string> { { "wrong", "climb" }, { "days", "climb" } };   // 결과 팁 → 장면
         static readonly float[] DemoKeyX = { 114, 136, 166, 188 };
 
         public bool DemoOpen => demo != null;
