@@ -9,7 +9,12 @@ using System.Collections.Generic;
 
 namespace Stairs.Core
 {
-    public enum ThreatType { Clipboard, Rival, Phone, Paper, Monitor, Coffee, Sticky, Suitcase }
+    public enum ThreatType { Clipboard, Rival, Phone, Paper, Monitor, Coffee, Sticky, Suitcase, Stapler, Airplane }
+
+    /// <summary>사라지는 칸의 박자 (웹 vanishState).</summary>
+    public struct VanishState { public bool gone, warn; public double goneIn, backIn; }
+    /// <summary>상사의 눈 (웹 gazeState). active가 false면 아직 61층 전(또는 연습).</summary>
+    public struct GazeState { public bool active, warn, sweep, rest; public double left, u, x; public int cycle, dir; }
     public enum RivalPhase { Walk, Stand, Climb }
 
     public sealed class Threat
@@ -23,6 +28,8 @@ namespace Stairs.Core
         // 모니터의 불규칙한 회전 값과 서류가방에서 쏟아질 것 (웹과 같은 decor 난수 순서를 지키려고 Core에서 뽑는다)
         public double spin, wob, ph;
         public string debris;
+        public bool returned;     // 스테이플러: 반대쪽에서 돌아오는 중
+        public int k;             // 종이비행기 편대: 지나간 비행기 수
         // ---- 경쟁 사원만 ----
         public bool locked;       // 막을 쪽이 정해졌다 (치기 rivalLeap초 전)
         public RivalPhase phase;
@@ -90,6 +97,13 @@ namespace Stairs.Core
         public double hitTimer, stepTimer, shake, hurtFlash;   // 연출용 타이머 (웹과 같은 값)
         public int facing;
         public int rivalIdx = 8;                  // 경쟁 사원 장식이 서 있는 칸
+        // ---- 새 장애물 상태 (웹 run.escT, gazeT0, gazeHitCycle, gazeKey, vanishPhase, held)
+        public double escT;                       // 에스컬레이터 칸에 서 있은 시간
+        public double? gazeT0;                    // 상사의 눈이 시작된 시각 (61층에 처음 닿은 때)
+        public int gazeHitCycle = -1, gazeKey = -1;
+        public double vanishPhase;                // 사라지는 칸 박자 옮김 (장애물 보기에서만)
+        /// <summary>Q·E를 누르고 있는지 (종이비행기 편대). 보이는 쪽이 매 프레임 넣는다. 봇은 스스로 정한다.</summary>
+        public readonly bool[] held = { false, false };
         /// <summary>켜면 Tick 안에서 웹과 같은 자리(시간을 더한 뒤)에 봇이 돈다 (웹의 ?bot=1).</summary>
         public bool Bot;
 
@@ -135,6 +149,30 @@ namespace Stairs.Core
         public int NextDir => Stairs.DirAt(steps);
         public ShockState Shock => Stairs.Shock(time);
 
+        public VanishState Vanish()
+        {
+            double show = D(C.vanishShow), P = show + D(C.vanishHide), ph = (time + vanishPhase) % P;
+            return new VanishState { gone = ph >= show, warn = ph >= show - D(C.vanishWarn) && ph < show, goneIn = ph < show ? show - ph : 0, backIn = ph >= show ? P - ph : 0 };
+        }
+
+        public GazeState Gaze()
+        {
+            if (Mode == GameMode.Practice || gazeT0 == null) return default;
+            double warn = D(C.gazeWarn), sweep = D(C.gazeSweep), P = warn + sweep + D(C.gazeRest), e = time - gazeT0.Value;
+            double ph = e % P; int cycle = (int)Math.Floor(e / P), dir = cycle % 2 != 0 ? -1 : 1;
+            var g = new GazeState { active = true, cycle = cycle, dir = dir };
+            if (ph < warn) { g.warn = true; g.left = warn - ph; return g; }
+            if (ph < warn + sweep)
+            {
+                double u = (ph - warn) / sweep, half = D(C.gazeWidth) / 2, W = D(C.viewW);
+                g.sweep = true; g.u = u; g.x = dir > 0 ? Lerp(-half, W + half, u) : Lerp(W + half, -half, u);
+                return g;
+            }
+            g.rest = true; return g;
+        }
+
+        bool GazeOnPlayer() { var g = Gaze(); return g.sweep && Math.Abs(g.x - PlayerScreenX) < D(C.gazeWidth) / 2; }
+
         double DiffT()
         {
             if (Mode == GameMode.Endless) return Clamp01((floor - 1) / (double)C.endlessRampFloors);
@@ -152,7 +190,15 @@ namespace Stairs.Core
             if (Ended || Mode == GameMode.Practice) return;
             int need = Stairs.DirAt(steps);
             if (dir != need) { Log?.Invoke("wrong direction"); facing = need; lastKind = "wrong"; LoseHeart("wrong"); return; }
-            steps++; crackT = 0;
+            if (GazeOnPlayer() && gazeHitCycle != Gaze().cycle)   // 상사의 눈이 나를 비추는 동안 움직였다
+            {
+                gazeHitCycle = Gaze().cycle;
+                Log?.Invoke("gaze caught"); lastKind = "gaze";
+                AddText("들켰다!", PlayerScreenX, PlayerY - 30, "red");
+                LoseHeart("gaze");
+                if (Ended) return;
+            }
+            steps++; crackT = 0; escT = 0;
             if (Stairs.IsCracked(steps)) { Sfx?.Invoke("sfx_stair_crack"); Log?.Invoke("crack step"); }
             days = Math.Min(D(C.maxDays), days + D(C.stepDays));
             score += C.stepPoints * mult;
@@ -237,6 +283,8 @@ namespace Stairs.Core
                 (ThreatType.Coffee, f >= C.coffeeFromFloor ? D(C.weightCoffee) : 0),
                 (ThreatType.Sticky, f >= C.stickyFromFloor ? D(C.weightSticky) : 0),
                 (ThreatType.Suitcase, f >= C.suitcaseFromFloor ? D(C.weightSuitcase) : 0),
+                (ThreatType.Stapler, f >= C.staplerFromFloor ? D(C.weightStapler) : 0),
+                (ThreatType.Airplane, f >= C.airplaneFromFloor ? D(C.weightAirplane) : 0),
             };
             double sum = 0; foreach (var e in w) sum += e.w;
             double x = rng.Next() * sum;
@@ -322,6 +370,7 @@ namespace Stairs.Core
             { ThreatType.Phone, ("sfx_phone_ring", 0.50) }, { ThreatType.Paper, ("sfx_cue_paper", 0.35) },
             { ThreatType.Coffee, ("sfx_cue_coffee", 0.135) }, { ThreatType.Sticky, ("sfx_cue_clipboard", 0.40) },
             { ThreatType.Suitcase, ("sfx_cue_suitcase", 0.46) },
+            { ThreatType.Stapler, ("sfx_cue_clipboard", 0.40) }, { ThreatType.Airplane, ("sfx_cue_paper", 0.35) },
         };
 
         /// <summary>한 프레임 진행 (웹의 updatePlay). 웹과 같게 하려면 dt = Step60. 끝난 뒤 endDelay가 지나면 true를 돌려준다.</summary>
@@ -361,6 +410,28 @@ namespace Stairs.Core
                 if (crackT >= D(C.crackTime)) { Log?.Invoke("crack fall"); Sfx?.Invoke("sfx_stair_crack"); Sfx?.Invoke("sfx_gameover"); End(false, "cracked"); return false; }
             }
 
+            if (Stairs.IsEscalator(steps))   // 내려가는 에스컬레이터: 가만히 서 있으면 한 칸씩 밀려 내려간다
+            {
+                escT += dt;
+                if (escT >= D(C.escalatorPush)) { escT = 0; steps = Math.Max(0, steps - 1); crackT = 0; facing = Stairs.DirAt(steps); Log?.Invoke("escalator push"); }
+            }
+            else escT = 0;
+            if (Stairs.IsVanish(steps) && Vanish().gone)   // 사라지는 칸: 없어지면 그 아래 칸으로 떨어진다
+            {
+                Log?.Invoke("vanish fall"); Sfx?.Invoke("sfx_stair_crack"); lastKind = "vanish";
+                while (steps > 0 && Stairs.IsVanish(steps)) steps--;
+                crackT = 0; escT = 0; facing = Stairs.DirAt(steps);
+                AddText("떨어짐!", PlayerScreenX, PlayerY - 30, "red");
+                LoseHeart("vanish");
+                if (Ended) return false;
+            }
+            if (Mode != GameMode.Practice && gazeT0 == null && floor >= C.gazeFromFloor) { gazeT0 = time; Log?.Invoke("gaze start"); }
+            var gz = Gaze();   // 상사의 눈: 예고·훑기가 시작될 때 소리
+            if (gz.active && !gz.rest)
+            {
+                int key = gz.cycle * 2 + (gz.sweep ? 1 : 0);
+                if (key != gazeKey) { gazeKey = key; if (gz.warn) { Sfx?.Invoke("sfx_warning"); Log?.Invoke("gaze warn"); } else { Sfx?.Invoke("sfx_light_flicker"); Log?.Invoke("gaze sweep"); } }
+            }
             if (floor >= C.flashFromFloor || Mode != GameMode.Normal)   // 카메라 플래시: 막을 수 없지만 피해도 없다
             {
                 nextFlash -= dt;
@@ -384,6 +455,19 @@ namespace Stairs.Core
                 if (p.type == ThreatType.Monitor && !p.shattered && time >= p.spawnT) { p.shattered = true; Sfx?.Invoke("sfx_monitor_shatter"); }
                 // 패링 타이밍 소리. 경쟁 사원은 막을 쪽이 정해진 뒤에만
                 if (Cues.TryGetValue(p.type, out var cue) && !p.cued && !p.done && p.SideKnown && time >= p.impactT - cue.lead) { p.cued = true; Sfx?.Invoke(cue.id); Log?.Invoke("cue " + p.type.ToString().ToLowerInvariant()); }
+                if (p.type == ThreatType.Airplane)   // 종이비행기 편대: 비행기마다 도착할 때 날아오는 쪽 키를 누르고 있어야 한다
+                {
+                    if (p.done) continue;
+                    int hs = p.side < 0 ? 0 : 1;
+                    while (!p.done && p.k < C.airplaneCount && time >= p.impactT + p.k * D(C.airplaneGap))
+                    {
+                        if (held[hs]) { p.k++; Sfx?.Invoke("sfx_click"); }
+                        else { p.done = true; Log?.Invoke("airplane miss " + p.k); lastKind = "airplane"; LoseHeart("attack"); }
+                    }
+                    if (Ended) break;
+                    if (!p.done && p.k >= C.airplaneCount) { p.done = true; GainParry(p); }
+                    continue;
+                }
                 if (p.done || time < p.impactT) continue;
                 p.done = true;
                 if (p.IsRival) { var rp = RivalPos(p); leavers.Add(new Leaver { side = p.side, t0 = time, wx = rp.x, wy = rp.y }); }
@@ -397,21 +481,12 @@ namespace Stairs.Core
                 }
                 if (parried)
                 {
-                    parries++; combo++;
-                    mult = Math.Min(C.maxMult, 1 + combo / C.comboPerMult);   // 3연속마다 ×1, 최대 ×10
-                    maxMult = Math.Max(maxMult, mult);
-                    maxCombo = Math.Max(maxCombo, combo);
-                    days = Math.Min(D(C.maxDays), days + D(C.parryDays));
-                    score += C.parryPoints * mult;
-                    Sfx?.Invoke("sfx_parry");
-                    int px = PlayerScreenX + p.side * 10;
-                    for (int k = 0; k < 8; k++)   // 패링 불꽃 (웹과 같이 decor 8번, 화면 좌표)
+                    GainParry(p);
+                    if (p.type == ThreatType.Stapler && !p.returned)   // 스테이플러: 부메랑처럼 반대쪽에서 돌아온다
                     {
-                        double a = decor.Next() * Math.PI * 2;
-                        sparks.Add(new Spark { x = px, y = PlayerY - 14, vx = Math.Cos(a) * 50, vy = Math.Sin(a) * 50 - 20, olive = k % 2 == 0 });
+                        p.returned = true; p.side = -p.side; p.from = p.side; p.done = false; p.cued = false; p.spawnT = time; p.impactT = time + D(C.staplerReturn);
+                        Log?.Invoke("stapler return");
                     }
-                    AddText("+" + D(C.parryDays).ToString(System.Globalization.CultureInfo.InvariantCulture), px, PlayerY - 30, "green");
-                    Log?.Invoke("parry ok combo=" + combo + " x" + mult);
                     if (p.type == ThreatType.Sticky && p.hp > 1)   // 포스트잇: 튕겨 나갔다가 같은 쪽으로 돌아온다
                     {
                         p.hp--; p.done = false; p.bounce = true; p.cued = false; p.spawnT = time; p.impactT = time + D(C.warnTime);
@@ -429,6 +504,26 @@ namespace Stairs.Core
             return false;
         }
 
+        /// <summary>막기에 성공했을 때 (웹 gainParry): 점수·콤보·일수·불꽃·글자. 종이비행기 편대는 다 막은 뒤 한 번.</summary>
+        void GainParry(Threat p)
+        {
+            parries++; combo++;
+            mult = Math.Min(C.maxMult, 1 + combo / C.comboPerMult);   // 3연속마다 ×1, 최대 ×10
+            maxMult = Math.Max(maxMult, mult);
+            maxCombo = Math.Max(maxCombo, combo);
+            days = Math.Min(D(C.maxDays), days + D(C.parryDays));
+            score += C.parryPoints * mult;
+            Sfx?.Invoke("sfx_parry");
+            int px = PlayerScreenX + p.side * 10;
+            for (int k = 0; k < 8; k++)   // 패링 불꽃 (웹과 같이 decor 8번, 화면 좌표)
+            {
+                double a = decor.Next() * Math.PI * 2;
+                sparks.Add(new Spark { x = px, y = PlayerY - 14, vx = Math.Cos(a) * 50, vy = Math.Sin(a) * 50 - 20, olive = k % 2 == 0 });
+            }
+            AddText("+" + D(C.parryDays).ToString(System.Globalization.CultureInfo.InvariantCulture), px, PlayerY - 30, "green");
+            Log?.Invoke("parry ok combo=" + combo + " x" + mult);
+        }
+
         // ------------------------------------------------------------ 봇 (웹의 ?bot=1)
         double botT;
         /// <summary>봇 한 프레임. Bot을 켜면 Tick이 부르고, 직접 불러도 된다.</summary>
@@ -439,15 +534,26 @@ namespace Stairs.Core
             double interval = D(C.botStepInterval);
             var sh = Shock;   // 다음 칸이 젖었고 전기가 흐르는 중이거나 곧 흐르면 건너지 않고 기다린다
             bool wetAhead = Stairs.IsWet(steps + 1) && (sh.live || sh.shockIn < 0.3);
+            // 웹 botTick과 같은 순서: 끝나는 것 > 하트 -1 > 기다림
+            var gz = Gaze(); var vs = Vanish();
+            int vrun = 0; while (vrun < 6 && Stairs.IsVanish(steps + 1 + vrun)) vrun++;
+            bool vanishBad = vrun > 0 && (vs.gone || vs.goneIn < 0.2 + vrun * interval);
+            bool hereFatal = (Stairs.IsWet(steps) && !sh.live && sh.shockIn < 0.45) || (Stairs.IsCracked(steps) && crackT > 1.0);
+            bool hereVanishSoon = Stairs.IsVanish(steps) && vs.goneIn < 0.45;
+            bool gazeNear = gz.sweep && Math.Abs(gz.x - PlayerScreenX) < D(C.gazeWidth) / 2 + 30;
+            bool wait = wetAhead || (!hereFatal && (vanishBad || (gazeNear && !hereVanishSoon)));
             if (botT >= interval)
             {
-                if (wetAhead) botT = interval;
+                if (wait) botT = interval;
                 else { botT -= interval; Step(NextDir); }
             }
             if (Ended) return;
+            // 종이비행기 편대: 첫 비행기 도착 botParryLead 전부터 날아오는 쪽 키를 누르고 있는다
+            held[0] = held[1] = false;
+            foreach (var p in threats) if (p.type == ThreatType.Airplane && !p.done && time >= p.impactT - D(C.botParryLead)) held[p.side < 0 ? 0 : 1] = true;
             foreach (var p in threats)
             {
-                if (p.done || p.type == ThreatType.Coffee || !p.SideKnown) continue;
+                if (p.done || p.type == ThreatType.Coffee || p.type == ThreatType.Airplane || !p.SideKnown) continue;
                 double tti = p.impactT - time;
                 int s = p.side < 0 ? 0 : 1;
                 if (tti > 0 && tti <= D(C.botParryLead) && time >= parryCd[s]) Parry(p.side);

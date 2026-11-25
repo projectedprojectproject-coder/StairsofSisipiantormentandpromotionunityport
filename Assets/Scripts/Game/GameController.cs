@@ -67,6 +67,10 @@ namespace Stairs.Game
         public static readonly Dictionary<string, string> Tips = new Dictionary<string, string>
         {
             { "clipboard", "결재판은 \"딱… 딱!\"의 두 번째 딱에 맞춰 막으세요" },
+            { "stapler", "스테이플러는 막으면 반대쪽에서 돌아와요. 반대쪽 키로 한 번 더 막으세요" },
+            { "airplane", "종이비행기 편대는 날아오는 쪽 키를 꾹 누르고 있으세요" },
+            { "vanish", "사라지는 칸은 5초 있다가 1초 없어져요. 깜박이면 기다렸다가 건너세요" },
+            { "gaze", "빨간 시선(상사의 눈)이 지나갈 때는 오르지 마세요. 가만히 있으면 안전해요" },
             { "rival", "경쟁 사원이 계단을 쫓아오면 내가 올라온 쪽(뒤쪽) 키로 막으세요" },
             { "coffee", "커피(× 표시)는 막지 마세요. 그냥 두면 지나갑니다" },
             { "monitor", "형광등이 깜박이면 모니터! 유리 깨지는 소리 1초 뒤에 떨어집니다" },
@@ -136,6 +140,13 @@ namespace Stairs.Game
             Resize();
             HandleKeys();
             HandleMouse();
+            // 종이비행기 편대: Q·E를 누르고 있는지 (웹 keydown/keyup의 held). 봇이면 봇이 정한다
+            var kbd = Keyboard.current;
+            if (run != null && !run.Bot && kbd != null)
+            {
+                bool live = screen == Screen.Play && !MenuMode();
+                run.held[0] = live && kbd.qKey.isPressed; run.held[1] = live && kbd.eKey.isPressed;
+            }
             acc += Math.Min(Time.deltaTime, 0.1);
             while (acc >= STEP) { acc -= STEP; StepFrame(STEP); }
         }
@@ -259,7 +270,7 @@ namespace Stairs.Game
                     B("dclose", "닫기", 264, 158, 48, 16, CloseDemo, 8),
                 };
             }
-            if (helpOpen) return new List<Btn> { B("demo", "장애물 보기", 60, 146, 96, 14, () => OpenDemo("climb")), B("close", "닫기", 164, 146, 96, 14, CloseHelp) };
+            if (helpOpen) return new List<Btn> { B("demo", "장애물 보기", 60, 150, 96, 14, () => OpenDemo("climb")), B("close", "닫기", 164, 150, 96, 14, CloseHelp) };
             if (settingsOpen)
             {
                 return new List<Btn>
@@ -385,6 +396,7 @@ namespace Stairs.Game
         }
         // 웹 visibilitychange: 탭이 숨겨질 때(창을 내렸을 때)만 일시정지한다. 다른 창을 눌러 초점만 잃으면 웹처럼 계속 돈다
         void OnApplicationPause(bool p) { if (p && screen == Screen.Play) { screen = Screen.Pause; focus = 0; } }
+        void OnApplicationFocus(bool has) { if (!has && run != null && !run.Bot) run.held[0] = run.held[1] = false; }   // 웹 blur: 누른 키를 뗀 것으로
 
         // ================================================================ 그리기 도구 (웹 rect/frameRect/txt/drawSprite/drawImg)
         static float JsRound(double v) => (float)Math.Floor(v + 0.5);
@@ -610,6 +622,19 @@ namespace Stairs.Game
                 for (double y = -24; y < H + 24; y += 24) Rect(0, y + off, W, 1, PalGray, 0.25);
             }
             Rect(0, 0, W, H, PalBg, 0.15);
+            // 상사의 눈 (배경): 예고 5초 동안 위층 어둠 속에 눈이 뜨고 화면이 붉어지며, 훑을 때는 빨간 시선이 화면을 가로지른다
+            var gz = r.Gaze(); double gw = D(C.gazeWidth);
+            if (gz.warn)
+            {
+                Rect(0, 0, W, H, "#C0302E", 0.12 * (1 - gz.left / D(C.gazeWarn)));
+                DrawGazeEye(160, 60, Clamp((D(C.gazeWarn) - gz.left) / 0.6, 0, 1), gz.left < 1.5 && Math.Floor(time * 6) % 2 == 0);
+            }
+            if (gz.sweep)
+            {
+                Rect(gz.x - gw / 2, 0, gw, H, "#C0302E", 0.32);
+                Rect(gz.x - 6, 0, 12, H, "#FF5A4E", 0.25);
+                DrawGazeEye(gz.x, 60, 1, false);
+            }
 
             if (!practice)
             {   // ---- 계단, 층 바닥, 소품, 난간 (연습 모드에는 없다)
@@ -639,6 +664,7 @@ namespace Stairs.Game
                 {
                     double sx = 160 + (r.Stairs.StairX(i) - r.camX), sy = PLAYER_Y + (-i * stepH - r.camY);
                     if (sy > H + 10 || sy < -30) continue;
+                    if (r.Stairs.IsVanish(i) && r.Vanish().gone) continue;   // 사라진 칸은 받침도 없다
                     int d = Math.Sign(r.Stairs.StairX(i + 1) - r.Stairs.StairX(i)); if (d == 0) d = 1;
                     double half = stepW / 2;
                     for (int c = 0; c < half * 2 * PX; c++)
@@ -661,7 +687,25 @@ namespace Stairs.Game
                     double shake = cracked && i == r.steps ? r.crackT / D(C.crackTime) : 0;
                     double jx = shake != 0 ? JsRound(Math.Sin(r.time * 70) * shake * 1.5 * PX) / PX : 0;
                     bool wet = r.Stairs.IsWet(i);
+                    // 사라지는 칸: 없어진 동안은 윤곽만, 없어지기 1초 전부터 깜박인다. 윗면의 하늘색 선이 표시
+                    bool van = r.Stairs.IsVanish(i); var vst = r.Vanish();
+                    if (van && vst.gone)
+                    {
+                        Rect(sx - stepW / 2, sy, stepW, 1, "#9FE0FF", 0.5); Rect(sx - stepW / 2, sy + tileH - 1, stepW, 1, "#9FE0FF", 0.25);
+                        continue;
+                    }
+                    if (van && vst.warn && Math.Floor(time * 12) % 2 == 0) cv.globalAlpha = 0.3f;
                     bool ok = DrawSprite("stairs", "zone" + zone, cracked && hasCrack ? "cracked" : wet && hasWet ? "wet" : "tile", time, sx + jx, sy, new SO { anchor = "tc", dw = tileW, dh = tileH, nofb = true });
+                    cv.globalAlpha = 1;
+                    if (van) Rect(sx - stepW / 2, sy, stepW, 1, "#9FE0FF", 0.8);
+                    if (r.Stairs.IsEscalator(i))
+                    {   // 내려가는 에스컬레이터: 쇠빛 디딤판 위로 홈이 내려가는 쪽으로 흐르고, 아래 화살표
+                        double ex0 = sx - stepW / 2, ew = stepW; int down = -Math.Sign(r.Stairs.StairX(i) - r.Stairs.StairX(i - 1)); if (down == 0) down = -1;
+                        Rect(ex0, sy, ew, 3, "#9AA0A8", 0.6);
+                        for (int g = 0; g < 5; g++) { double gx = ((g * 4.4 + down * r.time * 14) % ew + ew) % ew; Rect(ex0 + gx, sy, 1, 3, "#2A2C31", 0.85); }
+                        Rect(ex0, sy + 3, ew, 1, "#E3B65C", 0.7);
+                        foreach (double ax in new[] { ex0 + ew * 0.3, ex0 + ew * 0.7 }) { Rect(ax - 2, sy + 6, 5, 1, "#E3B65C", 0.9); Rect(ax - 1, sy + 7, 3, 1, "#E3B65C", 0.9); Rect(ax, sy + 8, 1, 1, "#E3B65C", 0.9); }
+                    }
                     if (wet)
                     {   // 전기: 예고 때는 전선 끝에서 불꽃이 튀고, 흐를 때는 물 위로 번개가 친다
                         var shs = r.Stairs.Shock(r.time); double x0 = sx - stepW / 2, w = stepW;
@@ -750,8 +794,9 @@ namespace Stairs.Game
                     }
                     continue;
                 }
+                if (p.type == ThreatType.Airplane) { DrawAirplanes(p, ppx); continue; }
                 if (r.time < p.spawnT) continue;                           // 모니터: 아직 형광등이 깜박이는 중
-                double prog = Clamp((r.time - p.spawnT) / warnTime, 0, 1), tt = r.time - p.spawnT;
+                double prog = Clamp((r.time - p.spawnT) / Math.Max(0.01, p.impactT - p.spawnT), 0, 1), tt = r.time - p.spawnT;   // 날아오는 시간(돌아오는 스테이플러는 0.9초)
                 double tx = ppx + p.side * 8, ty = PLAYER_Y - 16;          // 맞는 자리
                 double x, y;
                 if (p.bounce)
@@ -802,13 +847,14 @@ namespace Stairs.Game
                     if (t0 < 0.08) Rect(x - 10, y - 10, 20, 20, PalText, 0.8 - t0 * 10);   // 터지는 빛
                     continue;
                 }
-                if (p.type == ThreatType.Monitor || p.type == ThreatType.Phone || p.type == ThreatType.Suitcase) { so.rot = p.ph + p.spin * tt + 0.8 * Math.Sin(p.wob * tt * 3); at = 0; }
+                if (p.type == ThreatType.Monitor || p.type == ThreatType.Phone || p.type == ThreatType.Suitcase || p.type == ThreatType.Stapler) { so.rot = p.ph + p.spin * tt + 0.8 * Math.Sin(p.wob * tt * 3); at = 0; }
                 if (p.type == ThreatType.Suitcase) so.scale = 1.35;             // 서류가방은 크게 (서류·결재판과 헷갈리지 않게)
                 else if (p.type == ThreatType.Clipboard || p.type == ThreatType.Coffee || p.type == ThreatType.Sticky)
                 {
                     double c = Math.Cos(tt * 13 + p.ph); so.sx = (c < 0 ? -1 : 1) * Math.Max(0.14, Math.Abs(c)); so.sy = 0.82; so.rot = 0.12 * p.side; at = 0;
                 }
-                if (p.type == ThreatType.Sticky) DrawSprite("sticky", StickyColors[Mathf.Clamp(p.hp, 0, 5)], "fly", at, x, y, so);   // 색 = 남은 횟수
+                if (p.type == ThreatType.Stapler) DrawStapler(x, y, so.rot ?? 0);                                // 스테이플러 (그림 없이 그린다)
+                else if (p.type == ThreatType.Sticky) DrawSprite("sticky", StickyColors[Mathf.Clamp(p.hp, 0, 5)], "fly", at, x, y, so);   // 색 = 남은 횟수
                 else DrawSprite("projectiles", "default", p.type == ThreatType.Paper ? "document" : p.type.ToString().ToLowerInvariant(), at, x, y, so);
                 double wx = Clamp(x, 8, W - 8), wy = y - 16;
                 if (p.type == ThreatType.Coffee) { Txt("×", wx, wy, T(11, "center", "middle", true, PalRed)); continue; }   // 막지 말라는 표시
@@ -818,6 +864,7 @@ namespace Stairs.Game
                     Rect(wx - 5, wy - 7, 10, 14, PalRed);
                     Txt("!", wx, wy, T(10, "center", "middle", true, shadow: false));
                 }
+                if (p.type == ThreatType.Stapler && p.returned) Txt("↺", wx + 9, wy, T(8, "center", "middle", true, Hex("#E3B65C")));   // 돌아오는 중
             }
             // 효과
             foreach (var s in r.sparks) Rect(s.x, s.y, 2, 2, s.olive ? PalGreen : PalText, 1 - s.t / 0.4);
@@ -836,6 +883,9 @@ namespace Stairs.Game
                 Rect(0, 0, W, H, "#08090B", f);
                 Rect(ppx + p.side * 52 - 30, 0, 60, 3, PalText, Math.Max(0, 0.22 - f * 0.35));
             }
+            // 상사의 눈 (앞): 시선이 플레이어 위로도 보이게 옅게 한 번 더, 예고 숫자
+            if (gz.sweep) { Rect(gz.x - gw / 2, 0, gw, H, "#C0302E", 0.14); Txt("멈추기!", 160, 40, T(8, "center", "middle", true, Hex("#FF5A4E"))); }
+            if (gz.warn) Txt("상사의 눈 " + (int)Math.Ceiling(gz.left), 160, 40, T(8, "center", "middle", true, Hex("#E06A5E")));
             if (r.hurtFlash > 0) Rect(0, 0, W, H, PalRed, Clamp(r.hurtFlash / 0.35, 0, 1) * 0.35);
             // 카메라 플래시: 화면이 하얗게 번쩍이고, 터진 자리에 빛줄기가 남는다 (막을 수 없고 피해도 없다)
             if (r.flashing)
@@ -847,13 +897,53 @@ namespace Stairs.Game
             }
         }
 
+        // 새 장애물 그림 (스프라이트 없이 칸 단위로, 웹 drawGazeEye/drawStapler/drawPlane/drawAirplanes)
+        void DrawGazeEye(double x, double y, double k, bool closed)
+        {
+            if (k <= 0) return;
+            if (closed) { Rect(x - 26, y, 52, 2, "#E8E6DF", 0.8 * k); return; }
+            Rect(x - 18, y - 8, 36, 16, "#E8E6DF", 0.85 * k); Rect(x - 26, y - 4, 52, 8, "#E8E6DF", 0.85 * k);
+            Rect(x - 6, y - 6, 12, 12, "#A13D3D", k); Rect(x - 2, y - 2, 4, 4, "#1E1F22", k);
+            Rect(x - 20, y - 12, 40, 3, "#1E1F22", 0.9 * k);
+        }
+        void DrawStapler(double x, double y, double rot)
+        {
+            cv.Save(); cv.Translate(JsRound(x), JsRound(y)); cv.Rotate((float)rot);
+            Rect(-6, -1, 12, 3, "#3A3D43"); Rect(-6, -3, 10, 2, "#9AA0A8"); Rect(3, -3, 3, 1, "#A13D3D"); Rect(-6, 2, 12, 1, "#2A2C31");
+            cv.Restore();
+        }
+        void DrawPlane(double x, double y, int side)
+        {
+            int f = -side; double X = JsRound(x), Y = JsRound(y);
+            Rect(X - 4, Y, 9, 1, "#E8E6DF"); Rect(f > 0 ? X - 3 : X - 2, Y - 1, 6, 1, "#E8E6DF"); Rect(f > 0 ? X - 4 : X + 1, Y - 2, 4, 1, "#C9CCD1");
+            Rect(f > 0 ? X - 2 : X - 1, Y + 1, 4, 1, "#9AA0A8");
+        }
+        void DrawAirplanes(Threat p, double ppx)
+        {
+            var r = run; double dur = Math.Max(0.01, p.impactT - p.spawnT), tx = ppx + p.side * 8, ty = PLAYER_Y - 16, x0 = p.side < 0 ? -16 : W + 16, gap = D(C.airplaneGap);
+            for (int k = p.k; k < C.airplaneCount; k++)
+            {
+                double t0 = p.spawnT + k * gap;
+                if (r.time < t0) continue;
+                double u = Clamp((r.time - t0) / dur, 0, 1);
+                DrawPlane(Lerp(x0, tx, u), ty - 8 + (k % 2) * 6 - Math.Sin(u * Math.PI) * 10, p.side);
+            }
+            if (r.time >= p.spawnT)
+            {
+                double u = Clamp((r.time - p.spawnT) / dur, 0, 1), wx = Clamp(Lerp(x0, tx, u), 8, W - 8), wy = ty - 26;
+                bool wk = DrawSprite("warning", "default", "blink", r.time - p.spawnT, wx, wy, new SO { anchor = "c", fw = 8, fh = 12, nofb = true });
+                if (!wk && Math.Floor(time * 8) % 2 == 0) { Rect(wx - 5, wy - 7, 10, 14, PalRed); Txt("!", wx, wy, T(10, "center", "middle", true, shadow: false)); }
+                Txt("꾹!", wx, wy - 12, T(7, "center", "middle", true, Hex("#E3B65C")));
+            }
+        }
+
         void Plate(double x, double y, double w, double h)   // 05-3 컨셉의 이중 테두리 명판
         {
             Rect(x, y, w, h, PalBg, 0.92); FrameRect(x, y, w, h, "#9AA0A8"); FrameRect(x + 2, y + 2, w - 4, h - 4, "#5A5F66");
         }
         void DrawKeyCap(double x, double y, int idx, string iconName, string label)
         {
-            bool lit = time < padUntil[idx];
+            bool lit = time < padUntil[idx] || (idx >= 2 && demo == null && screen == Screen.Play && run != null && run.held[idx - 2]);   // 누르고 있는 막기 키도 켠다
             Rect(x, y, 18, 18, lit ? PalGreen : PalBg, lit ? 1 : 0.85);
             FrameRect(x, y, 18, 18, lit ? PalText : Hex("#9AA0A8"));
             bool ok = DrawSprite("hud_icons", "default", iconName, time, x + 3, y + 3, new SO { anchor = "tl", dw = 12, dh = 12, nofb = true });
@@ -945,12 +1035,14 @@ namespace Stairs.Game
                 Txt(rows[i, 0], 78, y + 7, T(7, "center", "middle", true));
                 Txt(rows[i, 1], 104, y + 7, T(7, bas: "middle"));
             }
-            Txt("\"!\" 1초 뒤 도착 · 도착 직전 0.2초 안에 맞는 쪽 키 (소리의 박)", 160, 101, T(6, "center", color: PalGreen));
-            Txt("11층~ 경쟁 사원 · 커피(× 표시: 막으면 하트 -1)", 160, 108, T(6, "center", color: PalRed));
-            Txt("21층~ 모니터 · 금 간 계단(1.5초) · 30층~ 젖은 계단(3초마다 감전)", 160, 115, T(6, "center", color: PalRed));
-            Txt("31층~ 전화기 · 41층~ 서류(반대쪽) · 61층~ 포스트잇(색=횟수)", 160, 122, T(6, "center", color: PalGreen));
-            Txt("61층~ 카메라 플래시(무해) · 71층~ 서류가방(터질 때 막기)", 160, 129, T(6, "center", color: PalGreen));
-            Txt("틀린 방향·놓친 공격은 하트 -1, 새 층마다 하트 +1", 160, 136, T(6, "center", color: PalText));
+            Txt("\"!\" 1초 뒤 도착 · 도착 직전 0.2초 안에 맞는 쪽 키 (소리의 박)", 160, 100, T(6, "center", color: PalGreen));
+            Txt("11층~ 경쟁 사원 · 커피(× 표시: 막으면 하트 -1)", 160, 106, T(6, "center", color: PalRed));
+            Txt("15층~ 스테이플러(반대쪽 다시) · 20층~ 종이비행기(키 꾹)", 160, 112, T(6, "center", color: PalGreen));
+            Txt("21층~ 모니터 · 금 간 계단(1.5초) · 30층~ 젖은 계단(3초마다 감전)", 160, 118, T(6, "center", color: PalRed));
+            Txt("20층~ 에스컬레이터 · 41층~ 사라지는 칸 · 61층~ 상사의 눈", 160, 124, T(6, "center", color: PalRed));
+            Txt("31층~ 전화기 · 41층~ 서류(반대쪽) · 61층~ 포스트잇(색=횟수)", 160, 130, T(6, "center", color: PalGreen));
+            Txt("61층~ 카메라 플래시(무해) · 71층~ 서류가방(터질 때 막기)", 160, 136, T(6, "center", color: PalGreen));
+            Txt("틀린 방향·놓친 공격은 하트 -1, 새 층마다 하트 +1", 160, 142, T(6, "center", color: PalText));
             DrawButtons();
         }
 
@@ -958,30 +1050,35 @@ namespace Stairs.Game
         // 장애물마다 짧은 장면을 실제 규칙(Tick)으로 돌리고, 자동으로 맞는 키를 맞는 순간에 눌러 보여 준다. 기록·점수에는 남지 않는다.
         // 설정 화면의 "장애물 · 보기"와 조작법 화면의 "장애물 보기"에서 연다 (설정은 타이틀·로비·일시정지·결과에서).
         // 장면은 따로 만든 판(demo.run)에서 돌고, 돌리거나 그릴 때만 run/screen/플레이어 동작을 잠깐 바꿔 끼운다.
-        // 칸 번호: 금 간·젖은 칸은 칸 번호로 정해진다 (171 금 감, 189 젖음, 204~209 와 372 근처는 안전)
+        // 칸 번호: 계단 장애물은 칸 번호로 정해진다 (171 금 감, 189 젖음, 205 에스컬레이터, 262 사라짐. 156~161, 372, 402~407 근처는 안전)
         sealed class DemoScene
         {
-            public string id, name, how; public int at; public ThreatType? threat; public double[] climb; public double? dur, flash; public int hp; public bool wet;
+            public string id, name, how, wait; public int at; public ThreatType? threat; public double[] climb; public double? dur, flash, vanishPhase, gazeT0; public int hp;
         }
         sealed class Demo
         {
             public int idx, ci, nowKey; public RunSimulation run; public string animState = ""; public double animStart;
-            public double? doneAt, crossed; public bool spawned, sawLive, waiting; public double nowUntil, holdUntil;
+            public double? doneAt, crossed; public bool spawned, sawLive, waiting; public double nowUntil, holdUntil; public string nowText = "지금!";
         }
         const int DemoSeed = 7;
         static readonly DemoScene[] Demos =
         {
             new DemoScene { id = "climb", name = "계단 오르기", how = "다음 계단이 놓인 쪽 화살표(← →). 틀리면 하트 -1, 오르고 막을수록 남은 일수가 늘어요", at = 0, climb = new[] { 0.5, 0.85, 1.2, 1.55, 1.9, 2.25, 2.6 }, dur = 3.4 },
-            new DemoScene { id = "clipboard", name = "결재판", how = "\"딱… 딱!\"의 두 번째 딱에 날아오는 쪽 키 (Q 왼쪽 · E 오른쪽)", at = 204, threat = ThreatType.Clipboard },
-            new DemoScene { id = "rival", name = "경쟁 사원", how = "층 바닥을 걸어와 계단을 쫓아와요. 덤비는 순간 내가 올라온 쪽(뒤쪽) 키", at = 204, threat = ThreatType.Rival, climb = new[] { 0.9, 1.25, 1.6, 1.95 } },
-            new DemoScene { id = "coffee", name = "커피", how = "× 표시는 막지 마세요! 막으면 하트 -1, 그냥 두면 지나갑니다", at = 204, threat = ThreatType.Coffee },
-            new DemoScene { id = "monitor", name = "모니터", how = "형광등이 깜박이면 위에서 떨어져요. 유리 깨지는 소리 1초 뒤에 막기", at = 204, threat = ThreatType.Monitor },
-            new DemoScene { id = "phone", name = "전화기", how = "아래에서 솟아올라요. 두 번째 벨이 울리는 순간에 막기", at = 204, threat = ThreatType.Phone },
-            new DemoScene { id = "paper", name = "서류", how = "던진 쪽 반대편에서 맞아요. \"!\"가 뜬 쪽(맞는 쪽) 키로", at = 204, threat = ThreatType.Paper },
-            new DemoScene { id = "sticky", name = "포스트잇", how = "막아도 튕겨 돌아와요. 색 = 남은 횟수 (분홍5 파랑4 초록3 노랑2 흰색1)", at = 204, threat = ThreatType.Sticky, hp = 3 },
-            new DemoScene { id = "suitcase", name = "서류가방", how = "\"똑, 똑, 펑!\" 터지는 순간에 막기", at = 204, threat = ThreatType.Suitcase },
+            new DemoScene { id = "clipboard", name = "결재판", how = "\"딱… 딱!\"의 두 번째 딱에 날아오는 쪽 키 (Q 왼쪽 · E 오른쪽)", at = 156, threat = ThreatType.Clipboard },
+            new DemoScene { id = "rival", name = "경쟁 사원", how = "층 바닥을 걸어와 계단을 쫓아와요. 덤비는 순간 내가 올라온 쪽(뒤쪽) 키", at = 156, threat = ThreatType.Rival, climb = new[] { 0.9, 1.25, 1.6, 1.95 } },
+            new DemoScene { id = "coffee", name = "커피", how = "× 표시는 막지 마세요! 막으면 하트 -1, 그냥 두면 지나갑니다", at = 156, threat = ThreatType.Coffee },
+            new DemoScene { id = "monitor", name = "모니터", how = "형광등이 깜박이면 위에서 떨어져요. 유리 깨지는 소리 1초 뒤에 막기", at = 156, threat = ThreatType.Monitor },
+            new DemoScene { id = "phone", name = "전화기", how = "아래에서 솟아올라요. 두 번째 벨이 울리는 순간에 막기", at = 156, threat = ThreatType.Phone },
+            new DemoScene { id = "paper", name = "서류", how = "던진 쪽 반대편에서 맞아요. \"!\"가 뜬 쪽(맞는 쪽) 키로", at = 156, threat = ThreatType.Paper },
+            new DemoScene { id = "sticky", name = "포스트잇", how = "막아도 튕겨 돌아와요. 색 = 남은 횟수 (분홍5 파랑4 초록3 노랑2 흰색1)", at = 156, threat = ThreatType.Sticky, hp = 3 },
+            new DemoScene { id = "suitcase", name = "서류가방", how = "\"똑, 똑, 펑!\" 터지는 순간에 막기", at = 156, threat = ThreatType.Suitcase },
+            new DemoScene { id = "stapler", name = "스테이플러", how = "막으면 부메랑처럼 반대쪽에서 돌아와요. 반대쪽 키로 한 번 더 (↺)", at = 156, threat = ThreatType.Stapler },
+            new DemoScene { id = "airplane", name = "종이비행기 편대", how = "날아오는 쪽 막기 키를 꾹 누르고 있기. 마지막 비행기까지 떼지 마세요", at = 156, threat = ThreatType.Airplane },
             new DemoScene { id = "cracked", name = "금 간 계단", how = "서 있으면 흔들리다 1.5초면 무너져요. 멈추지 말고 다음 칸으로", at = 170, climb = new[] { 0.5, 1.5, 1.85, 2.2 }, dur = 3.2 },
-            new DemoScene { id = "shock", name = "젖은 계단", how = "불꽃이 튀면 멈추고, 전기가 흐르고 난 뒤에 건너기 (3초마다 감전)", at = 188, wet = true },
+            new DemoScene { id = "escalator", name = "내려가는 에스컬레이터", how = "쇠빛 칸에 가만히 서 있으면 아래로 밀려요. 쉬지 말고 지나가기", at = 205, climb = new[] { 1.6, 1.95, 2.3, 2.65 }, dur = 3.4 },
+            new DemoScene { id = "shock", name = "젖은 계단", how = "불꽃이 튀면 멈추고, 전기가 흐르고 난 뒤에 건너기 (3초마다 감전)", at = 188, wait = "wet" },
+            new DemoScene { id = "vanish", name = "사라지는 칸", how = "하늘색 선 칸은 5초 있다가 1초 없어져요. 깜박이면 기다렸다가 다시 생기면 건너기", at = 261, wait = "vanish", vanishPhase = 3.8 },
+            new DemoScene { id = "gaze", name = "상사의 눈", how = "눈이 뜨고 5초 뒤 빨간 시선이 1.5초 동안 훑어요. 시선이 지나갈 때는 오르지 않기", at = 402, wait = "gaze", gazeT0 = -3.6 },
             new DemoScene { id = "flash", name = "카메라 플래시", how = "막을 수 없지만 피해도 없어요. 눈이 부셔도 계속 오르세요", at = 372, flash = 0.8, climb = new[] { 1.5, 1.85, 2.2 }, dur = 3.2 },
         };
         static readonly float[] DemoKeyX = { 114, 136, 166, 188 };
@@ -1020,10 +1117,12 @@ namespace Stairs.Game
             r.SnapCamera();
             r.nextAttack = sc.threat.HasValue ? 0.6 : 1e9; r.forceType = sc.threat;
             r.nextFlash = sc.flash ?? 1e9;
-            d.ci = 0; d.doneAt = sc.dur; d.spawned = false; d.crossed = null; d.sawLive = false; d.waiting = false; d.nowKey = 0; d.nowUntil = 0; d.holdUntil = 0;
+            r.vanishPhase = sc.vanishPhase ?? 0;
+            if (sc.gazeT0.HasValue) r.gazeT0 = sc.gazeT0;
+            d.ci = 0; d.doneAt = sc.dur; d.spawned = false; d.crossed = null; d.sawLive = false; d.waiting = false; d.nowKey = 0; d.nowUntil = 0; d.holdUntil = 0; d.nowText = "지금!";
             animState = ""; animStart = 0;
         }
-        void DemoPress(Demo d, int k) { d.nowKey = k; d.nowUntil = time + 0.35; }
+        void DemoPress(Demo d, int k, string text = "지금!") { d.nowKey = k; d.nowUntil = time + 0.35; d.nowText = text; }
         void DemoStepNow(Demo d) { int dir = run.Stairs.DirAt(run.steps); KeyStep(dir); DemoPress(d, dir < 0 ? 0 : 1); }
         void DemoUpdate(double dt)
         {
@@ -1033,15 +1132,17 @@ namespace Stairs.Game
                 if (r.Ended) { DemoStart(d.idx); return; }                       // 혹시 끝나면 처음부터
                 // 정해진 때에 오르기
                 while (sc.climb != null && d.ci < sc.climb.Length && r.time >= sc.climb[d.ci]) { DemoStepNow(d); d.ci++; }
-                // 젖은 계단: 불꽃(예고)·전기를 기다렸다가, 전기가 그치면 건넌다
-                if (sc.wet)
+                // 기다렸다 건너기: 젖은 계단(전기), 사라지는 칸(없어짐), 상사의 눈(훑기)이 지나가면 건넌다
+                if (sc.wait != null)
                 {
-                    var sh = r.Stairs.Shock(r.time);
+                    var sh = r.Stairs.Shock(r.time); var vs = r.Vanish(); var gz = r.Gaze();
+                    bool danger = sc.wait == "wet" ? sh.live : sc.wait == "vanish" ? vs.gone : gz.sweep;
+                    bool soon = sc.wait == "wet" ? sh.warn : sc.wait == "vanish" ? vs.warn : gz.warn;
                     if (d.crossed == null)
                     {
-                        if (sh.live) d.sawLive = true;
-                        d.waiting = r.time > 0.8;
-                        if (d.sawLive && !sh.live) { DemoStepNow(d); d.crossed = r.time; d.waiting = false; }
+                        if (danger) d.sawLive = true;
+                        d.waiting = danger || soon;
+                        if (d.sawLive && !danger) { DemoStepNow(d); d.crossed = r.time; d.waiting = false; }
                     }
                     else
                     {
@@ -1050,10 +1151,16 @@ namespace Stairs.Game
                         if (d.doneAt == null) d.doneAt = k + 1.8;
                     }
                 }
-                // 막기: 막을 쪽이 정해진 위협은 도착 botParryLead 전에 (커피는 누르지 않는다)
+                // 막기: 막을 쪽이 정해진 위협은 도착 botParryLead 전에 (커피는 누르지 않는다). 종이비행기는 꾹 누르고 있기
+                r.held[0] = r.held[1] = false;
                 foreach (var p in r.threats)
                 {
-                    if (p.done) continue;
+                    if (p.type != ThreatType.Airplane || p.done || r.time < p.impactT - D(C.botParryLead)) continue;
+                    int hs = p.side < 0 ? 0 : 1; r.held[hs] = true; padUntil[hs + 2] = time + 0.05; DemoPress(d, hs + 2, "꾹!");
+                }
+                foreach (var p in r.threats)
+                {
+                    if (p.done || p.type == ThreatType.Airplane) continue;
                     double tti = p.impactT - r.time; int s = p.side < 0 ? 0 : 1;
                     if (p.type == ThreatType.Coffee) { if (tti > 0 && tti <= 0.35) d.holdUntil = time + 0.45; continue; }
                     if (p.SideKnown && tti > 0 && tti <= D(C.botParryLead) && r.time >= r.parryCd[s]) { KeyParry(p.side); DemoPress(d, s + 2); }
@@ -1083,7 +1190,7 @@ namespace Stairs.Game
             if (time < d.nowUntil)
             {   // 지금 누른 키
                 double kx = DemoKeyX[d.nowKey] + 9;
-                Txt("지금!", kx, 146, T(7, "center", "middle", true, Hex("#E3B65C")));
+                Txt(d.nowText, kx, 146, T(7, "center", "middle", true, Hex("#E3B65C")));
                 Rect(kx - 1, 151, 2, 5, "#E3B65C");
             }
             if (time < d.holdUntil) Txt("누르지 마세요!", 160, 146, T(7, "center", "middle", true, PalRed));

@@ -41,6 +41,19 @@ public class ParityTests
     }
 
     [Test]
+    public void EscalatorAndVanishTiles_MatchWeb()
+    {
+        // 웹 isEscalator/isVanish를 node로 돌려 뽑은 값 (보통 모드, 0~599칸)
+        var s = new StairLayout(new StairsConfig(), 1, GameMode.Normal);
+        var esc = Enumerable.Range(0, 600).Where(s.IsEscalator).ToArray();
+        var van = Enumerable.Range(0, 600).Where(s.IsVanish).ToArray();
+        Assert.AreEqual(37, esc.Length);
+        CollectionAssert.AreEqual(new[] { 127, 133, 146, 163, 169, 175, 182, 205, 218, 224 }, esc.Take(10));
+        Assert.AreEqual(23, van.Length);
+        CollectionAssert.AreEqual(new[] { 257, 262, 267, 304, 309, 345, 350, 355, 382, 391 }, van.Take(10));
+    }
+
+    [Test]
     public void ConfigValues_ReadAsWebDoubles()
     {
         // (double)0.33f 는 0.32999998... 이라 1일 길이가 웹과 달라진다. D()는 웹의 0.33 그대로
@@ -84,23 +97,63 @@ public class ParityTests
         Assert.AreEqual("CEO", sim.RankName);
     }
 
-    // ---------------------------------------------------------------- 한 판 전체가 웹과 같은지 (봇 플레이테스트)
-    // 웹 game.js를 node에서 ?bot=1로 돌린 결과. seed는 웹 runCount 순서(보통 1~6, 무한 7~9, 연습 10~11 중 일부).
-    // float로 쌓던 이전 Core는 같은 seed에서 점수가 146,700(웹 110,160)처럼 달라졌다.
-    [TestCase(GameMode.Normal, 1, 60 * 300, "floor100", 100, 110160, 65, 45)]
-    [TestCase(GameMode.Normal, 2, 60 * 300, "floor100", 100, 141670, 61, 61)]
-    [TestCase(GameMode.Endless, 7, 60 * 240, null, 196, 279430, 197, 74)]
-    [TestCase(GameMode.Practice, 10, 60 * 90, null, 11, 24200, 61, 61)]
-    public void BotRun_MatchesWebFrameForFrame(GameMode mode, int seed, int ticks, string cause, int floor, int score, int parries, int maxCombo)
+    // ---------------------------------------------------------------- 한 판 전체가 웹과 같은지 (사건 기록을 한 줄씩)
+    // WebRuns.txt = 웹 game.js를 node에서 돌린 사건 기록 (Tools~/web_expect.js가 만든다). 봇 판(보통 3·무한·연습)과
+    // 사람 흉내(오르기만, 가만히, 틀린 쪽, 느리게)를 같은 입력으로 C# Core에 넣고, 공격·패링·하트·층·새 장애물 사건과 끝 상태를 맞대어 본다.
+    static readonly System.Text.RegularExpressions.Regex Keep = new System.Text.RegularExpressions.Regex(
+        @"spawn$|rival lock|parry ok|heart|^floor \d|promote|gameover|shock hit|crack fall|finish|coffee|sticky bounce|wrong direction|stapler return|airplane miss|escalator push|vanish fall|gaze (caught|start|warn|sweep)|hit \(");
+
+    sealed class WebRun { public string mode, policy, end; public int seed, ticks; public readonly List<string> events = new List<string>(); }
+
+    static List<WebRun> LoadWebRuns()
     {
-        var sim = new RunSimulation(new StairsConfig(), seed, mode) { Bot = true };
-        for (int i = 0; i < ticks && !sim.Ended; i++) sim.Tick(RunSimulation.Step60);
-        Assert.AreEqual(cause, sim.ended?.cause);
-        Assert.AreEqual(floor, sim.floor);
-        Assert.AreEqual(score, sim.score);
-        Assert.AreEqual(parries, sim.parries);
-        Assert.AreEqual(maxCombo, sim.maxCombo);
-        Assert.AreEqual(3, sim.hearts);
+        string path = System.IO.Path.Combine(UnityEngine.Application.dataPath, "Tests/EditMode/WebRuns.txt");
+        var runs = new List<WebRun>(); WebRun cur = null;
+        foreach (var raw in System.IO.File.ReadAllLines(path))
+        {
+            string line = raw.TrimEnd('\r');
+            if (line.Length == 0 || line.StartsWith("#")) continue;
+            if (line.StartsWith("run "))
+            {
+                var f = line.Split(' ');
+                cur = new WebRun { mode = f[1], seed = int.Parse(f[2]), policy = f[3], ticks = int.Parse(f[4]) };
+                runs.Add(cur);
+            }
+            else if (line.StartsWith("end ")) cur.end = line.Substring(4);
+            else cur.events.Add(line);
+        }
+        return runs;
+    }
+
+    [Test]
+    public void WebRuns_MatchFrameForFrame()
+    {
+        var runs = LoadWebRuns();
+        Assert.GreaterOrEqual(runs.Count, 10);
+        foreach (var w in runs)
+        {
+            var mode = w.mode == "endless" ? GameMode.Endless : w.mode == "practice" ? GameMode.Practice : GameMode.Normal;
+            var sim = new RunSimulation(new StairsConfig(), w.seed, mode) { Bot = w.policy == "bot" };
+            var got = new List<string>();
+            sim.Log += m => { if (Keep.IsMatch(m)) got.Add(m); };
+            for (int k = 1; k <= w.ticks && !sim.Ended; k++)
+            {
+                int d = 0;
+                if (w.policy == "climb" && k % 18 == 0) d = sim.Stairs.DirAt(sim.steps);
+                else if (w.policy == "wrong" && k % 30 == 0) d = -sim.Stairs.DirAt(sim.steps);
+                else if (w.policy == "slow" && k % 100 == 0) d = sim.Stairs.DirAt(sim.steps);
+                if (d != 0) sim.Step(d);
+                sim.Tick(RunSimulation.Step60);
+            }
+            string tag = w.mode + " seed " + w.seed + " " + w.policy;
+            for (int i = 0; i < System.Math.Max(got.Count, w.events.Count); i++)
+            {
+                string a = i < w.events.Count ? w.events[i] : "(끝)", b = i < got.Count ? got[i] : "(끝)";
+                Assert.AreEqual(a, b, tag + ": " + i + "번째 사건이 다르다");
+            }
+            string end = (sim.ended != null ? sim.ended.cause : "-") + " " + sim.floor + " " + sim.score + " " + sim.hearts + " " + sim.parries + " " + sim.steps;
+            Assert.AreEqual(w.end, end, tag + ": 끝 상태가 다르다");
+        }
     }
 
     // ---------------------------------------------------------------- 경쟁 사원 쫓아오기 (2단계)

@@ -12,7 +12,7 @@
    PNG 시트를 픽셀 아트 설정(Point, 압축 없음, 크기 늘리지 않음)으로 가져와 프레임별로 자르고, ogg를 가져와 `Assets/Imported/SpriteCatalog.asset`을 만든다.
 4. 메뉴 **Stairs > Create Game Scene** → `Assets/Scenes/Game.unity` → Play.
 5. 글꼴: 웹 `txt()`의 `"Noto Sans KR"`과 같은 글꼴을 `Assets/Resources/Fonts`에 넣었다 (보통 400, 굵게 700, 가족 이름 "Stairs Noto Sans KR", SIL OFL, `OFL.txt`).
-6. Window > General > Test Runner > EditMode 에서 `ParityTests`(16개)를 돌린다.
+6. Window > General > Test Runner > EditMode 에서 `ParityTests`(14개)를 돌린다.
 
 조작과 명령줄은 웹과 같다: ← → 오르기, Q E 막기, Esc 일시정지, Enter·Space 결정, 방향키·Tab·마우스로 고르기. `-seed N`, `-bot`, `-mute` (웹 `?seed=`, `?bot=1`, `?mute=1`).
 
@@ -24,9 +24,9 @@
 | `Assets/Scripts/Game` (Stairs.Game) | `GameController` 화면·버튼·입력·소리·그리기 전부, `WebCanvas` 웹 2D 캔버스 흉내(GL), `AudioDirector`, `SaveData`, `SpriteCatalog`, `PlaytestDriver` | `screen`, `getButtons`, `keydown`/`mousedown`, `syncAudio`, `drawTitle`~`drawResult`, `shareResult`, `save` |
 | `Assets/Resources` | `StairsCanvas.shader`(그림·글자·회색 필터), `Fonts/` Noto Sans KR 보통·굵게 | 캔버스, CSS filter, 글꼴 |
 | `Assets/Editor` | `StairsAssetImporter`(에셋 가져오기, 씬 만들기, 명령줄 빌드), `MiniJson` | Publisher의 연결 단계 |
-| `Assets/Tests/EditMode` | `ParityTests` 16개 | Publisher 동작 확인 |
+| `Assets/Tests/EditMode` | `ParityTests` 14개, `WebRuns.txt`(웹 판 사건 기록) | Publisher 동작 확인 |
 | `WebReference/` | 비교 기준인 웹 판 사본(`index.html`, `game.js`, `assets/`). Unity는 가져오지 않는다 | 웹 판 그대로 |
-| `Tools~` (Unity가 가져오지 않음) | `cs_core.js`(C# Core를 옮긴 JS)·`playtest.js`(웹과 사건 기록 비교), `rival_expect.js`(테스트 기대값), `web_shots.py`(웹 화면을 PlaytestDriver와 같은 순서로 찍기) | |
+| `Tools~` (Unity가 가져오지 않음) | `web_expect.js`(웹 판 사건 기록 → `WebRuns.txt`), `rival_expect.js`(테스트 기대값), `web_shots.py`(웹 화면을 PlaytestDriver와 같은 순서로 찍기) | |
 
 ## 2단계에서 바뀐 것 (2026-11-25)
 
@@ -145,6 +145,22 @@ uGUI로 비슷하게 그리던 화면을 버리고, 웹 `game.js`의 그리기·
   `PlaytestDriver`와 `web_shots.py`가 12장면을 같은 순간에 찍어 맞대어 봤다 (같은 장면, 몇 프레임 차이). `WebReference/game.js`도 새 웹 판으로 바꿨다.
 - **실행 파일**: `StairsAssetImporter.BuildWindowsGame` (메뉴 Stairs > Build Windows Game). 창 1280x720, 크기 바꾸기 가능, 스플래시 없음,
   제품 이름 "승급의 계단". 약 113MB (zip 41MB). 실행 파일에서도 소리 출력(RMS 0.13)과 오류 0개를 확인했다.
+
+## 새 장애물 5가지 (2026-11-25)
+
+웹 판(`claude/obstacle-demo` 브랜치)에 넣은 것을 그대로 옮겼다. 규칙은 Core, 그림·입력·장애물 보기 장면은 GameController.
+
+| 장애물 | 층 | 규칙 |
+|---|---|---|
+| 상사의 눈 | 61층~ (보통·무한) | 61층에 처음 닿은 때부터 예고 5초(눈, 숫자, 화면이 붉어짐) → 빨간 시선이 1.5초 동안 화면을 훑음 → 6초 쉼. 시선이 나를 비출 때 오르면 하트 -1 |
+| 내려가는 에스컬레이터 | 20층~ (무한 4층~) | 쇠빛 칸. 0.6초 서 있으면 한 칸 밀려 내려간다 |
+| 사라지는 칸 | 41층~ (무한 5층~) | 하늘색 선 칸. 모두 같은 박자로 5초 있고 1초 없어진다. 없을 때 그 칸에 있으면 아래로 떨어지고 하트 -1 |
+| 스테이플러 | 15층~ | 막으면 반대쪽에서 0.9초 뒤 돌아온다. 반대쪽 키로 한 번 더 |
+| 종이비행기 편대 | 20층~ | 4대가 0.2초 간격. 날아오는 쪽 막기 키를 꾹 누르고 있어야 한다 (`RunSimulation.held`, Input System `isPressed`) |
+
+- **웹과 같은지**: 예전의 JS 옮김(`cs_core.js`, `playtest.js`)은 지웠다. 대신 `Tools~/web_expect.js`가 웹 판 10판(보통 봇 3, 무한 봇, 연습 봇, 오르기만 2, 가만히, 틀린 쪽, 느리게)의
+  사건 기록을 `Assets/Tests/EditMode/WebRuns.txt`로 뽑고, `WebRuns_MatchFrameForFrame`이 같은 입력을 진짜 C# Core에 넣어 한 줄씩 맞대어 본다 (새 장애물 사건 포함). 통과.
+- 보통 모드 봇은 6판 모두 100층에 닿는다. 무한 모드 봇은 81층(젖은 칸 바로 다음이 사라지는 칸)에서 끝난다.
 
 ## 아직 웹과 다른 점
 

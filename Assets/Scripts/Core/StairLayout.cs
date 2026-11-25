@@ -75,6 +75,24 @@ namespace Stairs.Core
             return HashBelow(i, 2246822519UL, c.wetShare);
         }
 
+        /// <summary>내려가는 에스컬레이터 칸 (웹 isEscalator): 층이 바뀌는 칸, 금 간·젖은 칸은 빼고 칸 번호로.</summary>
+        public bool IsEscalator(int i)
+        {
+            if (Mode == GameMode.Practice) return false;
+            int from = Mode == GameMode.Endless ? 4 : c.escalatorFromFloor;
+            if (FloorOfSteps(i) < from || i % c.stairsPerFloor == 0 || IsCracked(i) || IsWet(i)) return false;
+            return HashBelow(i, 3266489917UL, c.escalatorShare);
+        }
+
+        /// <summary>사라지는 칸 (웹 isVanish): 층이 바뀌는 칸, 다른 장애물 칸은 빼고 칸 번호로. 모두 같은 박자로 나타나고 사라진다.</summary>
+        public bool IsVanish(int i)
+        {
+            if (Mode == GameMode.Practice) return false;
+            int from = Mode == GameMode.Endless ? 5 : c.vanishFromFloor;
+            if (FloorOfSteps(i) < from || i % c.stairsPerFloor == 0 || IsCracked(i) || IsWet(i) || IsEscalator(i)) return false;
+            return HashBelow(i, 668265263UL, c.vanishShare);
+        }
+
         public ShockState Shock(double t)
         {
             double P = StairsConfig.D(c.shockPeriod), ph = t % P, start = P - StairsConfig.D(c.shockTime);

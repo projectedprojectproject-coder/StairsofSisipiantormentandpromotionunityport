@@ -1,0 +1,1405 @@
+# 웹 판 사건 기록 — Tools~/web_expect.js가 만든다. 고치지 말고 다시 만든다
+# run <모드> <seed> <손놀림> <프레임 수> / 사건 줄들 / end <끝난 까닭|-> <층> <점수> <하트> <패링> <칸>
+run normal 1 bot 18000
+floor 2
+floor 3
+clipboard spawn
+floor 4
+parry ok combo=1 x1
+floor 5
+clipboard spawn
+floor 6
+parry ok combo=2 x1
+floor 7
+clipboard spawn
+floor 8
+parry ok combo=3 x2
+floor 9
+clipboard spawn
+parry ok combo=4 x2
+floor 10
+clipboard spawn
+floor 11
+parry ok combo=5 x2
+floor 12
+rival spawn
+floor 13
+rival lock stairs
+rival spawn
+parry ok combo=6 x3
+floor 14
+clipboard spawn
+rival lock stairs
+parry ok combo=7 x3
+floor 15
+parry ok combo=8 x3
+stapler spawn
+floor 16
+parry ok combo=9 x4
+stapler return
+floor 17
+coffee spawn
+parry ok combo=10 x4
+cue coffee
+coffee dodged
+floor 18
+clipboard spawn
+floor 19
+parry ok combo=11 x4
+coffee spawn
+floor 20
+promote -> 대리 (20F)
+cue coffee
+coffee dodged
+stapler spawn
+floor 21
+rival spawn
+parry ok combo=12 x5
+stapler return
+floor 22
+parry ok combo=13 x5
+rival lock stairs
+parry ok combo=14 x5
+floor 23
+stapler spawn
+floor 24
+parry ok combo=15 x6
+stapler return
+floor 25
+parry ok combo=16 x6
+rival spawn
+floor 26
+stapler spawn
+floor 27
+rival lock stairs
+parry ok combo=17 x6
+parry ok combo=18 x7
+stapler return
+floor 28
+stapler spawn
+parry ok combo=19 x7
+floor 29
+parry ok combo=20 x7
+stapler return
+floor 30
+coffee spawn
+parry ok combo=21 x8
+cue coffee
+floor 31
+coffee dodged
+floor 32
+coffee spawn
+cue coffee
+coffee dodged
+floor 33
+airplane spawn
+floor 34
+stapler spawn
+floor 35
+parry ok combo=22 x8
+parry ok combo=23 x8
+stapler return
+floor 36
+phone spawn
+parry ok combo=24 x9
+parry ok combo=25 x9
+floor 37
+clipboard spawn
+floor 38
+parry ok combo=26 x9
+clipboard spawn
+floor 39
+parry ok combo=27 x10
+phone spawn
+floor 40
+promote -> 과장 (40F)
+rival spawn
+parry ok combo=28 x10
+floor 41
+paper spawn
+rival lock stairs
+floor 42
+parry ok combo=29 x10
+parry ok combo=30 x10
+stapler spawn
+floor 43
+parry ok combo=31 x10
+stapler return
+floor 44
+parry ok combo=32 x10
+rival spawn
+floor 45
+rival lock stairs
+floor 46
+parry ok combo=33 x10
+clipboard spawn
+floor 47
+parry ok combo=34 x10
+floor 48
+rival spawn
+floor 49
+rival lock stairs
+parry ok combo=35 x10
+clipboard spawn
+floor 50
+parry ok combo=36 x10
+floor 51
+monitor spawn
+floor 52
+paper spawn
+parry ok combo=37 x10
+parry ok combo=38 x10
+floor 53
+rival spawn
+floor 54
+rival lock stairs
+floor 55
+stapler spawn
+parry ok combo=39 x10
+parry ok combo=40 x10
+stapler return
+floor 56
+clipboard spawn
+parry ok combo=41 x10
+heart -1 (attack) hearts=2
+coffee spawn
+floor 57
+heart +1 (floor) hearts=3
+cue coffee
+coffee dodged
+floor 58
+rival spawn
+floor 59
+stapler spawn
+rival lock stairs
+parry ok combo=1 x1
+floor 60
+promote -> 간부 (60F)
+parry ok combo=2 x1
+stapler return
+clipboard spawn
+floor 61
+gaze start
+gaze warn
+parry ok combo=3 x2
+heart -1 (attack) hearts=2
+rival spawn
+floor 62
+heart +1 (floor) hearts=3
+rival lock stairs
+floor 63
+parry ok combo=1 x1
+stapler spawn
+floor 64
+parry ok combo=2 x1
+stapler return
+gaze sweep
+parry ok combo=3 x2
+floor 65
+coffee spawn
+cue coffee
+coffee dodged
+floor 66
+phone spawn
+floor 67
+parry ok combo=4 x2
+floor 68
+airplane spawn
+floor 69
+parry ok combo=5 x2
+floor 70
+phone spawn
+gaze warn
+parry ok combo=6 x3
+floor 71
+suitcase spawn
+floor 72
+parry ok combo=7 x3
+clipboard spawn
+floor 73
+parry ok combo=8 x3
+stapler spawn
+floor 74
+gaze sweep
+parry ok combo=9 x4
+stapler return
+sticky spawn
+floor 75
+parry ok combo=10 x4
+parry ok combo=11 x4
+sticky bounce hp=1
+floor 76
+suitcase spawn
+parry ok combo=12 x5
+floor 77
+parry ok combo=13 x5
+rival spawn
+floor 78
+clipboard spawn
+floor 79
+rival lock stairs
+parry ok combo=14 x5
+parry ok combo=15 x6
+stapler spawn
+parry ok combo=16 x6
+stapler return
+gaze warn
+phone spawn
+floor 80
+promote -> CEO (80F)
+parry ok combo=17 x6
+parry ok combo=18 x7
+airplane spawn
+floor 81
+sticky spawn
+parry ok combo=19 x7
+floor 82
+parry ok combo=20 x7
+floor 83
+clipboard spawn
+gaze sweep
+parry ok combo=21 x8
+floor 84
+sticky spawn
+floor 85
+parry ok combo=22 x8
+sticky bounce hp=1
+floor 86
+parry ok combo=23 x8
+clipboard spawn
+floor 87
+parry ok combo=24 x9
+sticky spawn
+parry ok combo=25 x9
+floor 88
+gaze warn
+suitcase spawn
+floor 89
+parry ok combo=26 x9
+floor 90
+airplane spawn
+floor 91
+parry ok combo=27 x10
+floor 92
+stapler spawn
+gaze sweep
+parry ok combo=28 x10
+stapler return
+floor 93
+coffee spawn
+parry ok combo=29 x10
+cue coffee
+coffee dodged
+floor 94
+sticky spawn
+floor 95
+parry ok combo=30 x10
+coffee spawn
+floor 96
+cue coffee
+coffee dodged
+rival spawn
+floor 97
+rival lock stairs
+clipboard spawn
+floor 98
+parry ok combo=31 x10
+gaze warn
+parry ok combo=32 x10
+floor 99
+clipboard spawn
+paper spawn
+parry ok combo=33 x10
+floor 100
+finish 100F
+end floor100 100 117760 3 77 594
+run normal 2 bot 18000
+floor 2
+floor 3
+clipboard spawn
+floor 4
+parry ok combo=1 x1
+floor 5
+clipboard spawn
+floor 6
+parry ok combo=2 x1
+floor 7
+clipboard spawn
+floor 8
+parry ok combo=3 x2
+floor 9
+clipboard spawn
+floor 10
+parry ok combo=4 x2
+clipboard spawn
+floor 11
+parry ok combo=5 x2
+floor 12
+rival spawn
+floor 13
+rival lock stairs
+clipboard spawn
+parry ok combo=6 x3
+floor 14
+parry ok combo=7 x3
+floor 15
+clipboard spawn
+floor 16
+parry ok combo=8 x3
+stapler spawn
+floor 17
+parry ok combo=9 x4
+stapler return
+stapler spawn
+floor 18
+parry ok combo=10 x4
+parry ok combo=11 x4
+stapler return
+clipboard spawn
+floor 19
+parry ok combo=12 x5
+clipboard spawn
+heart -1 (attack) hearts=2
+floor 20
+heart +1 (floor) hearts=3
+promote -> 대리 (20F)
+stapler spawn
+parry ok combo=1 x1
+floor 21
+clipboard spawn
+parry ok combo=2 x1
+stapler return
+floor 22
+parry ok combo=3 x2
+parry ok combo=4 x2
+floor 23
+clipboard spawn
+floor 24
+parry ok combo=5 x2
+floor 25
+stapler spawn
+floor 26
+parry ok combo=6 x3
+stapler return
+floor 27
+parry ok combo=7 x3
+floor 28
+monitor spawn
+floor 29
+parry ok combo=8 x3
+floor 30
+coffee spawn
+cue coffee
+coffee dodged
+floor 31
+monitor spawn
+floor 32
+floor 33
+parry ok combo=9 x4
+stapler spawn
+floor 34
+parry ok combo=10 x4
+stapler return
+rival spawn
+floor 35
+parry ok combo=11 x4
+floor 36
+rival lock stairs
+parry ok combo=12 x5
+phone spawn
+floor 37
+parry ok combo=13 x5
+airplane spawn
+floor 38
+stapler spawn
+floor 39
+parry ok combo=14 x5
+parry ok combo=15 x6
+stapler return
+phone spawn
+parry ok combo=16 x6
+floor 40
+promote -> 과장 (40F)
+parry ok combo=17 x6
+monitor spawn
+floor 41
+rival spawn
+parry ok combo=18 x7
+floor 42
+rival lock stairs
+parry ok combo=19 x7
+floor 43
+paper spawn
+parry ok combo=20 x7
+floor 44
+stapler spawn
+floor 45
+parry ok combo=21 x8
+stapler return
+floor 46
+phone spawn
+parry ok combo=22 x8
+floor 47
+parry ok combo=23 x8
+stapler spawn
+floor 48
+parry ok combo=24 x9
+stapler return
+floor 49
+parry ok combo=25 x9
+rival spawn
+floor 50
+rival lock stairs
+clipboard spawn
+parry ok combo=26 x9
+floor 51
+parry ok combo=27 x10
+monitor spawn
+floor 52
+floor 53
+monitor spawn
+parry ok combo=28 x10
+floor 54
+coffee spawn
+parry ok combo=29 x10
+floor 55
+cue coffee
+coffee dodged
+floor 56
+clipboard spawn
+parry ok combo=30 x10
+clipboard spawn
+floor 57
+parry ok combo=31 x10
+coffee spawn
+floor 58
+cue coffee
+coffee dodged
+floor 59
+paper spawn
+floor 60
+promote -> 간부 (60F)
+phone spawn
+parry ok combo=32 x10
+paper spawn
+parry ok combo=33 x10
+floor 61
+gaze start
+gaze warn
+parry ok combo=34 x10
+phone spawn
+floor 62
+parry ok combo=35 x10
+floor 63
+monitor spawn
+floor 64
+parry ok combo=36 x10
+gaze sweep
+floor 65
+clipboard spawn
+parry ok combo=37 x10
+floor 66
+rival spawn
+floor 67
+rival lock stairs
+parry ok combo=38 x10
+floor 68
+stapler spawn
+floor 69
+parry ok combo=39 x10
+stapler return
+sticky spawn
+floor 70
+parry ok combo=40 x10
+gaze warn
+parry ok combo=41 x10
+sticky bounce hp=4
+floor 71
+suitcase spawn
+parry ok combo=42 x10
+sticky bounce hp=3
+floor 72
+parry ok combo=43 x10
+heart -1 (attack) hearts=2
+paper spawn
+floor 73
+heart +1 (floor) hearts=3
+parry ok combo=1 x1
+floor 74
+monitor spawn
+gaze sweep
+floor 75
+parry ok combo=2 x1
+paper spawn
+floor 76
+parry ok combo=3 x2
+phone spawn
+floor 77
+parry ok combo=4 x2
+floor 78
+phone spawn
+parry ok combo=5 x2
+floor 79
+rival spawn
+sticky spawn
+rival lock stairs
+gaze warn
+parry ok combo=6 x3
+floor 80
+promote -> CEO (80F)
+stapler spawn
+parry ok combo=7 x3
+sticky bounce hp=2
+sticky spawn
+parry ok combo=8 x3
+stapler return
+floor 81
+parry ok combo=9 x4
+sticky bounce hp=1
+rival spawn
+parry ok combo=10 x4
+parry ok combo=11 x4
+sticky bounce hp=4
+heart -1 (attack) hearts=2
+floor 82
+heart +1 (floor) hearts=3
+parry ok combo=1 x1
+sticky bounce hp=3
+rival lock stairs
+floor 83
+parry ok combo=2 x1
+parry ok combo=3 x2
+sticky bounce hp=2
+stapler spawn
+gaze sweep
+parry ok combo=4 x2
+sticky bounce hp=1
+parry ok combo=5 x2
+stapler return
+floor 84
+parry ok combo=6 x3
+heart -1 (attack) hearts=2
+floor 85
+heart +1 (floor) hearts=3
+clipboard spawn
+floor 86
+parry ok combo=1 x1
+floor 87
+stapler spawn
+parry ok combo=2 x1
+stapler return
+clipboard spawn
+parry ok combo=3 x2
+floor 88
+parry ok combo=4 x2
+gaze warn
+floor 89
+sticky spawn
+floor 90
+parry ok combo=5 x2
+sticky bounce hp=2
+phone spawn
+parry ok combo=6 x3
+sticky bounce hp=1
+floor 91
+parry ok combo=7 x3
+heart -1 (attack) hearts=2
+floor 92
+heart +1 (floor) hearts=3
+clipboard spawn
+gaze sweep
+floor 93
+parry ok combo=1 x1
+rival spawn
+floor 94
+stapler spawn
+rival lock stairs
+floor 95
+parry ok combo=2 x1
+parry ok combo=3 x2
+stapler return
+floor 96
+sticky spawn
+parry ok combo=4 x2
+parry ok combo=5 x2
+sticky bounce hp=2
+floor 97
+paper spawn
+parry ok combo=6 x3
+sticky bounce hp=1
+floor 98
+parry ok combo=7 x3
+clipboard spawn
+parry ok combo=8 x3
+gaze warn
+floor 99
+parry ok combo=9 x4
+rival spawn
+airplane spawn
+floor 100
+finish 100F
+end floor100 100 92260 3 88 594
+run normal 3 bot 18000
+floor 2
+floor 3
+clipboard spawn
+floor 4
+parry ok combo=1 x1
+floor 5
+clipboard spawn
+floor 6
+parry ok combo=2 x1
+floor 7
+clipboard spawn
+floor 8
+parry ok combo=3 x2
+floor 9
+clipboard spawn
+parry ok combo=4 x2
+floor 10
+clipboard spawn
+floor 11
+parry ok combo=5 x2
+floor 12
+clipboard spawn
+floor 13
+parry ok combo=6 x3
+rival spawn
+floor 14
+rival lock stairs
+floor 15
+rival spawn
+parry ok combo=7 x3
+floor 16
+clipboard spawn
+rival lock stairs
+parry ok combo=8 x3
+floor 17
+parry ok combo=9 x4
+rival spawn
+floor 18
+rival lock stairs
+rival spawn
+floor 19
+parry ok combo=10 x4
+rival lock stairs
+floor 20
+promote -> 대리 (20F)
+clipboard spawn
+parry ok combo=11 x4
+parry ok combo=12 x5
+coffee spawn
+floor 21
+cue coffee
+coffee dodged
+floor 22
+monitor spawn
+floor 23
+parry ok combo=13 x5
+floor 24
+rival spawn
+floor 25
+rival lock stairs
+parry ok combo=14 x5
+floor 26
+rival spawn
+floor 27
+rival lock stairs
+parry ok combo=15 x6
+monitor spawn
+floor 28
+floor 29
+parry ok combo=16 x6
+coffee spawn
+floor 30
+cue coffee
+coffee dodged
+floor 31
+coffee spawn
+floor 32
+cue coffee
+coffee dodged
+stapler spawn
+floor 33
+parry ok combo=17 x6
+stapler return
+floor 34
+airplane spawn
+parry ok combo=18 x7
+floor 35
+parry ok combo=19 x7
+clipboard spawn
+floor 36
+parry ok combo=20 x7
+floor 37
+rival spawn
+floor 38
+rival lock stairs
+phone spawn
+parry ok combo=21 x8
+floor 39
+parry ok combo=22 x8
+phone spawn
+parry ok combo=23 x8
+airplane spawn
+floor 40
+promote -> 과장 (40F)
+floor 41
+coffee spawn
+parry ok combo=24 x9
+cue coffee
+coffee dodged
+floor 42
+clipboard spawn
+floor 43
+parry ok combo=25 x9
+floor 44
+monitor spawn
+floor 45
+floor 46
+parry ok combo=26 x9
+floor 47
+airplane spawn
+floor 48
+parry ok combo=27 x10
+airplane spawn
+floor 49
+parry ok combo=28 x10
+floor 50
+monitor spawn
+floor 51
+parry ok combo=29 x10
+monitor spawn
+floor 52
+paper spawn
+floor 53
+parry ok combo=30 x10
+parry ok combo=31 x10
+floor 54
+clipboard spawn
+floor 55
+parry ok combo=32 x10
+phone spawn
+floor 56
+parry ok combo=33 x10
+monitor spawn
+floor 57
+airplane spawn
+floor 58
+parry ok combo=34 x10
+clipboard spawn
+floor 59
+parry ok combo=35 x10
+parry ok combo=36 x10
+monitor spawn
+floor 60
+promote -> 간부 (60F)
+stapler spawn
+floor 61
+gaze start
+gaze warn
+parry ok combo=37 x10
+clipboard spawn
+parry ok combo=38 x10
+stapler return
+floor 62
+parry ok combo=39 x10
+parry ok combo=40 x10
+floor 63
+monitor spawn
+floor 64
+parry ok combo=41 x10
+gaze sweep
+floor 65
+airplane spawn
+floor 66
+parry ok combo=42 x10
+rival spawn
+floor 67
+rival lock stairs
+floor 68
+paper spawn
+parry ok combo=43 x10
+parry ok combo=44 x10
+floor 69
+coffee spawn
+floor 70
+cue coffee
+gaze warn
+coffee dodged
+floor 71
+suitcase spawn
+floor 72
+parry ok combo=45 x10
+paper spawn
+parry ok combo=46 x10
+floor 73
+clipboard spawn
+floor 74
+gaze sweep
+parry ok combo=47 x10
+stapler spawn
+floor 75
+parry ok combo=48 x10
+stapler return
+floor 76
+paper spawn
+parry ok combo=49 x10
+parry ok combo=50 x10
+floor 77
+rival spawn
+floor 78
+paper spawn
+rival lock stairs
+parry ok combo=51 x10
+floor 79
+monitor spawn
+parry ok combo=52 x10
+airplane spawn
+parry ok combo=53 x10
+gaze warn
+floor 80
+promote -> CEO (80F)
+phone spawn
+parry ok combo=54 x10
+parry ok combo=55 x10
+rival spawn
+floor 81
+rival spawn
+rival lock stairs
+floor 82
+parry ok combo=56 x10
+rival lock stairs
+floor 83
+parry ok combo=57 x10
+gaze sweep
+phone spawn
+floor 84
+parry ok combo=58 x10
+floor 85
+coffee spawn
+floor 86
+cue coffee
+coffee dodged
+floor 87
+airplane spawn
+parry ok combo=59 x10
+clipboard spawn
+floor 88
+gaze warn
+parry ok combo=60 x10
+floor 89
+stapler spawn
+floor 90
+parry ok combo=61 x10
+stapler return
+floor 91
+stapler spawn
+parry ok combo=62 x10
+parry ok combo=63 x10
+stapler return
+floor 92
+stapler spawn
+gaze sweep
+parry ok combo=64 x10
+floor 93
+parry ok combo=65 x10
+stapler return
+coffee spawn
+parry ok combo=66 x10
+floor 94
+cue coffee
+coffee dodged
+floor 95
+rival spawn
+floor 96
+rival spawn
+rival lock stairs
+floor 97
+parry ok combo=67 x10
+rival lock stairs
+rival spawn
+parry ok combo=68 x10
+floor 98
+gaze warn
+rival lock stairs
+phone spawn
+floor 99
+parry ok combo=69 x10
+parry ok combo=70 x10
+suitcase spawn
+floor 100
+finish 100F
+end floor100 100 148990 3 70 594
+run endless 4 bot 14400
+floor 2
+floor 3
+phone spawn
+floor 4
+parry ok combo=1 x1
+floor 5
+rival spawn
+floor 6
+rival lock stairs
+floor 7
+parry ok combo=2 x1
+airplane spawn
+floor 8
+parry ok combo=3 x2
+floor 9
+suitcase spawn
+parry ok combo=4 x2
+floor 10
+stapler spawn
+floor 11
+parry ok combo=5 x2
+stapler return
+floor 12
+parry ok combo=6 x3
+paper spawn
+floor 13
+parry ok combo=7 x3
+floor 14
+airplane spawn
+floor 15
+parry ok combo=8 x3
+floor 16
+phone spawn
+floor 17
+parry ok combo=9 x4
+floor 18
+suitcase spawn
+parry ok combo=10 x4
+floor 19
+paper spawn
+floor 20
+promote -> 대리 (20F)
+parry ok combo=11 x4
+floor 21
+monitor spawn
+floor 22
+parry ok combo=12 x5
+suitcase spawn
+floor 23
+parry ok combo=13 x5
+floor 24
+monitor spawn
+floor 25
+phone spawn
+parry ok combo=14 x5
+floor 26
+parry ok combo=15 x6
+floor 27
+airplane spawn
+floor 28
+parry ok combo=16 x6
+phone spawn
+floor 29
+escalator push
+parry ok combo=17 x6
+monitor spawn
+floor 30
+airplane spawn
+parry ok combo=18 x7
+floor 31
+stapler spawn
+parry ok combo=19 x7
+floor 32
+parry ok combo=20 x7
+stapler return
+floor 33
+airplane spawn
+parry ok combo=21 x8
+floor 34
+phone spawn
+parry ok combo=22 x8
+floor 35
+parry ok combo=23 x8
+floor 36
+clipboard spawn
+floor 37
+parry ok combo=24 x9
+suitcase spawn
+floor 38
+parry ok combo=25 x9
+monitor spawn
+vanish fall
+heart -1 (vanish) hearts=2
+floor 39
+heart +1 (floor) hearts=3
+parry ok combo=1 x1
+coffee spawn
+floor 40
+promote -> 과장 (40F)
+cue coffee
+coffee dodged
+suitcase spawn
+floor 41
+parry ok combo=2 x1
+suitcase spawn
+floor 42
+parry ok combo=3 x2
+floor 43
+paper spawn
+parry ok combo=4 x2
+floor 44
+paper spawn
+floor 45
+parry ok combo=5 x2
+clipboard spawn
+floor 46
+parry ok combo=6 x3
+clipboard spawn
+floor 47
+parry ok combo=7 x3
+floor 48
+sticky spawn
+parry ok combo=8 x3
+sticky bounce hp=1
+stapler spawn
+floor 49
+parry ok combo=9 x4
+parry ok combo=10 x4
+stapler return
+sticky spawn
+floor 50
+parry ok combo=11 x4
+parry ok combo=12 x5
+sticky bounce hp=3
+sticky spawn
+floor 51
+parry ok combo=13 x5
+sticky bounce hp=2
+parry ok combo=14 x5
+floor 52
+clipboard spawn
+parry ok combo=15 x6
+sticky bounce hp=1
+parry ok combo=16 x6
+parry ok combo=17 x6
+paper spawn
+floor 53
+parry ok combo=18 x7
+floor 54
+clipboard spawn
+parry ok combo=19 x7
+floor 55
+stapler spawn
+floor 56
+parry ok combo=20 x7
+stapler return
+sticky spawn
+parry ok combo=21 x8
+floor 57
+parry ok combo=22 x8
+coffee spawn
+floor 58
+cue coffee
+coffee dodged
+paper spawn
+floor 59
+parry ok combo=23 x8
+airplane spawn
+floor 60
+promote -> 간부 (60F)
+suitcase spawn
+parry ok combo=24 x9
+floor 61
+gaze start
+gaze warn
+phone spawn
+parry ok combo=25 x9
+floor 62
+parry ok combo=26 x9
+clipboard spawn
+parry ok combo=27 x10
+floor 63
+stapler spawn
+floor 64
+parry ok combo=28 x10
+stapler return
+stapler spawn
+parry ok combo=29 x10
+floor 65
+parry ok combo=30 x10
+stapler return
+monitor spawn
+gaze sweep
+parry ok combo=31 x10
+phone spawn
+floor 66
+parry ok combo=32 x10
+coffee spawn
+parry ok combo=33 x10
+floor 67
+cue coffee
+coffee dodged
+suitcase spawn
+floor 68
+parry ok combo=34 x10
+floor 69
+rival spawn
+paper spawn
+floor 70
+rival lock stairs
+parry ok combo=35 x10
+stapler spawn
+floor 71
+parry ok combo=36 x10
+gaze warn
+paper spawn
+parry ok combo=37 x10
+stapler return
+floor 72
+parry ok combo=38 x10
+parry ok combo=39 x10
+paper spawn
+floor 73
+parry ok combo=40 x10
+clipboard spawn
+floor 74
+monitor spawn
+parry ok combo=41 x10
+sticky spawn
+gaze sweep
+floor 75
+parry ok combo=42 x10
+clipboard spawn
+parry ok combo=43 x10
+floor 76
+airplane spawn
+parry ok combo=44 x10
+floor 77
+clipboard spawn
+parry ok combo=45 x10
+floor 78
+parry ok combo=46 x10
+stapler spawn
+floor 79
+parry ok combo=47 x10
+stapler return
+coffee spawn
+floor 80
+promote -> CEO (80F)
+parry ok combo=48 x10
+cue coffee
+coffee dodged
+suitcase spawn
+floor 81
+gaze warn
+vanish fall
+heart -1 (vanish) hearts=2
+parry ok combo=1 x1
+shock hit
+gameover shock
+end shock 81 97620 2 74 483
+run practice 5 bot 3600
+suitcase spawn
+parry ok combo=1 x1
+clipboard spawn
+parry ok combo=2 x1
+paper spawn
+parry ok combo=3 x2
+suitcase spawn
+parry ok combo=4 x2
+clipboard spawn
+parry ok combo=5 x2
+stapler spawn
+parry ok combo=6 x3
+stapler return
+sticky spawn
+parry ok combo=7 x3
+parry ok combo=8 x3
+sticky bounce hp=1
+rival spawn
+parry ok combo=9 x4
+rival lock floor
+monitor spawn
+parry ok combo=10 x4
+parry ok combo=11 x4
+clipboard spawn
+parry ok combo=12 x5
+paper spawn
+parry ok combo=13 x5
+paper spawn
+parry ok combo=14 x5
+sticky spawn
+parry ok combo=15 x6
+sticky bounce hp=4
+sticky spawn
+parry ok combo=16 x6
+sticky bounce hp=3
+parry ok combo=17 x6
+hit (attack) practice
+phone spawn
+parry ok combo=1 x1
+clipboard spawn
+parry ok combo=2 x1
+phone spawn
+parry ok combo=3 x2
+rival spawn
+rival lock floor
+parry ok combo=4 x2
+airplane spawn
+suitcase spawn
+parry ok combo=5 x2
+parry ok combo=6 x3
+clipboard spawn
+parry ok combo=7 x3
+monitor spawn
+clipboard spawn
+parry ok combo=8 x3
+parry ok combo=9 x4
+phone spawn
+parry ok combo=10 x4
+stapler spawn
+parry ok combo=11 x4
+stapler return
+sticky spawn
+parry ok combo=12 x5
+parry ok combo=13 x5
+sticky bounce hp=2
+monitor spawn
+parry ok combo=14 x5
+sticky bounce hp=1
+suitcase spawn
+parry ok combo=15 x6
+parry ok combo=16 x6
+parry ok combo=17 x6
+phone spawn
+parry ok combo=18 x7
+paper spawn
+parry ok combo=19 x7
+airplane spawn
+parry ok combo=20 x7
+suitcase spawn
+parry ok combo=21 x8
+airplane spawn
+end - 11 7650 3 38 60
+run normal 6 climb 7200
+floor 2
+clipboard spawn
+floor 3
+heart -1 (attack) hearts=2
+floor 4
+heart +1 (floor) hearts=3
+clipboard spawn
+heart -1 (attack) hearts=2
+floor 5
+heart +1 (floor) hearts=3
+clipboard spawn
+heart -1 (attack) hearts=2
+floor 6
+heart +1 (floor) hearts=3
+clipboard spawn
+floor 7
+heart -1 (attack) hearts=2
+clipboard spawn
+floor 8
+heart +1 (floor) hearts=3
+heart -1 (attack) hearts=2
+clipboard spawn
+floor 9
+heart +1 (floor) hearts=3
+heart -1 (attack) hearts=2
+clipboard spawn
+floor 10
+heart +1 (floor) hearts=3
+heart -1 (attack) hearts=2
+clipboard spawn
+floor 11
+heart +1 (floor) hearts=3
+heart -1 (attack) hearts=2
+floor 12
+heart +1 (floor) hearts=3
+coffee spawn
+cue coffee
+coffee dodged
+floor 13
+coffee spawn
+cue coffee
+coffee dodged
+floor 14
+rival spawn
+rival lock stairs
+clipboard spawn
+floor 15
+heart -1 (attack) hearts=2
+heart -1 (attack) hearts=1
+rival spawn
+floor 16
+heart +1 (floor) hearts=2
+rival lock stairs
+rival spawn
+heart -1 (attack) hearts=1
+floor 17
+heart +1 (floor) hearts=2
+rival lock stairs
+rival spawn
+heart -1 (attack) hearts=1
+floor 18
+heart +1 (floor) hearts=2
+stapler spawn
+rival lock stairs
+heart -1 (attack) hearts=1
+rival spawn
+heart -1 (attack) hearts=0
+gameover hearts
+end hearts 18 2770 0 0 107
+run endless 7 climb 7200
+floor 2
+clipboard spawn
+floor 3
+heart -1 (attack) hearts=2
+floor 4
+heart +1 (floor) hearts=3
+monitor spawn
+floor 5
+heart -1 (attack) hearts=2
+rival spawn
+floor 6
+heart +1 (floor) hearts=3
+rival lock stairs
+heart -1 (attack) hearts=2
+rival spawn
+floor 7
+heart +1 (floor) hearts=3
+rival lock stairs
+heart -1 (attack) hearts=2
+monitor spawn
+floor 8
+heart +1 (floor) hearts=3
+heart -1 (attack) hearts=2
+floor 9
+heart +1 (floor) hearts=3
+phone spawn
+shock hit
+gameover shock
+end shock 9 1290 3 0 49
+run normal 8 idle 3600
+clipboard spawn
+heart -1 (attack) hearts=2
+clipboard spawn
+heart -1 (attack) hearts=1
+clipboard spawn
+heart -1 (attack) hearts=0
+gameover hearts
+end hearts 1 0 0 0 0
+run normal 9 wrong 1800
+wrong direction
+heart -1 (wrong) hearts=2
+wrong direction
+heart -1 (wrong) hearts=1
+wrong direction
+heart -1 (wrong) hearts=0
+gameover hearts
+end hearts 1 0 0 0 0
+run endless 10 slow 3600
+stapler spawn
+heart -1 (attack) hearts=2
+paper spawn
+heart -1 (attack) hearts=1
+clipboard spawn
+heart -1 (attack) hearts=0
+gameover hearts
+end hearts 1 50 0 0 5
