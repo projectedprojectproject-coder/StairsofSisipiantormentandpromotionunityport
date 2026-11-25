@@ -7,6 +7,20 @@
 - 1층 사원에서 100층 CEO실까지 (20·40·60·80층 승급), 무한 모드, 연습 모드
 - 명령줄: `-seed N` (웹 `?seed=N`), `-bot` (웹 `?bot=1`, 혼자 오름), `-mute` (웹 `?mute=1`)
 
+## 실행 파일로 하기 (Unity 없이)
+
+`StairsOfPromotion.exe`를 두 번 누르면 됩니다 (같은 폴더의 `StairsOfPromotion_Data` 등이 함께 있어야 합니다). 창 1280x720, 크기 바꾸기 가능, 설정 → 전체화면.
+실행 파일 만들기: Unity에서 메뉴 **Stairs > Build Windows Game** (→ `Builds/Windows/`), 또는 명령줄
+
+```
+Unity.exe -batchmode -projectPath . -executeMethod Stairs.EditorTools.StairsAssetImporter.BuildWindowsGame -stairsBuild 출력폴더 -quit
+```
+
+## 장애물 보기
+
+조작법 화면의 **장애물 보기**, 결과 화면의 **대처법 보기**(마지막 원인의 장면부터)에서 장애물 12가지의 대처법을 움직이는 장면으로 봅니다.
+실제 규칙으로 돌며 자동으로 맞는 키를 맞는 순간에 누르고(키 아이콘이 켜지고 "지금!"), 패링 타이밍 소리도 그대로 납니다. 웹 판과 같습니다.
+
 ## 여는 방법
 
 1. Unity Hub → Add → 이 폴더. **Unity 6.6 (6000.6.10f1)** 에서 확인했습니다.

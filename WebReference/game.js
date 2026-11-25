@@ -388,6 +388,7 @@ let result = null;
 let resultLock = 0;
 let settingsOpen = false;
 let helpOpen = false; // 조작법 화면
+let demo = null;      // 장애물 보기 (조작법·결과 화면에서 연다)
 let runCount = 0;
 let toastText = '', toastUntil = 0;
 const padUntil = [0, 0, 0, 0]; // ←, →, Q, E 키 아이콘 발광
@@ -415,11 +416,10 @@ function floorOfSteps(n) { return 1 + Math.floor(n / CONFIG.stairsPerFloor); }
 function zoneOf(f) { return f <= 20 ? 1 : f <= 40 ? 2 : f <= 60 ? 3 : f <= 99 ? 4 : 5; }
 
 // mode: 'normal'(1~100층), 'endless'(무한: 1층부터 모든 장애물, 끝없음), 'practice'(연습: 제자리에서 막기만, 시간 제한·게임 오버 없음)
-function startRun(mode) {
-  if (typeof mode !== 'string') mode = 'normal';
-  const seed = SEED + runCount; runCount++;
+// 한 판의 상태를 새로 만든다 (계단 생성기 st도 새로). startRun과 장애물 보기(demo)가 같이 쓴다
+function makeRun(seed, mode) {
   newStairs(seed);
-  run = {
+  const r = {
     seed: seed, rng: mulberry32(seed), decor: mulberry32(seed ^ 0x5bd1e995),
     time: 0, steps: 0, floor: 1, rankIdx: 0,
     hearts: CONFIG.maxHearts, days: CONFIG.startDays,
@@ -432,12 +432,18 @@ function startRun(mode) {
     facing: dirAt(0), animState: '', animStart: 0,
     botT: 0, ended: null, endTimer: 0, rivalIdx: 8,
     crackT: 0, nextFlash: CONFIG.flashGap, camFlash: null, shockCycle: -1,
-    mode: mode, hits: 0,
+    mode: mode, hits: 0, forceType: null,
   };
   if (mode === 'practice') {                   // 연습: 층 바닥이 있는 칸에 서서 시작, 카메라도 바로 그 자리
-    const r = run; r.steps = (CONFIG.practiceFloor - 1) * CONFIG.stairsPerFloor; r.floor = CONFIG.practiceFloor;
+    r.steps = (CONFIG.practiceFloor - 1) * CONFIG.stairsPerFloor; r.floor = CONFIG.practiceFloor;
     r.pvx = r.camX = stairX(r.steps); r.pvy = r.camY = -r.steps * CONFIG.stepH; r.facing = dirAt(r.steps);
   }
+  return r;
+}
+function startRun(mode) {
+  if (typeof mode !== 'string') mode = 'normal';
+  const seed = SEED + runCount; runCount++;
+  run = makeRun(seed, mode);
   screen = 'play'; focus = 0; settingsOpen = false;
   log('run start seed=' + seed + ' mode=' + mode);
 }
@@ -572,7 +578,7 @@ function pickType(r) {
 function spawnAttack() {
   const r = run;
   const side = r.rng() < 0.5 ? -1 : 1;
-  const type = pickType(r), rival = type === 'rival';
+  const picked = pickType(r), type = r.forceType || picked, rival = type === 'rival';   // forceType: 장애물 보기에서만 쓴다
   let impact = r.time + CONFIG.warnTime + (rival ? CONFIG.rivalWalk : 0) + (type === 'monitor' ? CONFIG.flickerTime : 0);
   if (impact - r.lastImpact < CONFIG.minAttackGap) impact = r.lastImpact + CONFIG.minAttackGap;
   r.lastImpact = impact;
@@ -657,7 +663,7 @@ function updatePlay(dt) {
     if (r.endTimer <= 0) finishRun();
     return;
   }
-  if (BOT) botTick(dt);
+  if (BOT && !demo) botTick(dt);   // 장애물 보기는 자기 자동 조작을 쓴다
   if (r.ended) return;
 
   if (r.mode !== 'practice') r.days -= dt / CONFIG.dayDuration * drainMult(r);   // 연습: 시간 제한 없음
@@ -779,7 +785,14 @@ function toast(s) { toastText = s; toastUntil = time + 2.5; }
 function toTitle() { screen = 'title'; focus = 0; settingsOpen = false; helpOpen = false; }
 
 function getButtons() {
-  if (helpOpen) return [btn('close', '닫기', 110, 146, 100, 14, closeHelp)];
+  if (demo) {
+    return [
+      btn('dprev', '◀ 이전', 8, 158, 48, 16, function () { demoGo(demo.idx - 1); }, 8),
+      btn('dnext', '다음 ▶', 60, 158, 48, 16, function () { demoGo(demo.idx + 1); }, 8),
+      btn('dclose', '닫기', 264, 158, 48, 16, closeDemo, 8),
+    ];
+  }
+  if (helpOpen) return [btn('demo', '장애물 보기', 60, 146, 96, 14, function () { openDemo('climb'); }), btn('close', '닫기', 164, 146, 96, 14, closeHelp)];
   if (settingsOpen) {
     return [
       btn('snd', Snd.muted ? '꺼짐' : '켜짐', 170, 42, 88, 14, function () { Snd.muted = !Snd.muted; syncAudio(true); }),
@@ -816,8 +829,9 @@ function getButtons() {
       ];
     case 'result':
       return [
-        Object.assign(btn('again', result && result.kind === 'promote' ? '1층부터 다시' : '다시 하기', 96, 155, 62, 16, function () { startRun(result ? result.mode : 'normal'); }, 8), { tone: 'red' }),   // 05-5 요소 5
-        btn('share', '기록 공유', 166, 155, 62, 16, shareResult, 8),                                                                                     // 요소 2
+        Object.assign(btn('again', result && result.kind === 'promote' ? '1층부터 다시' : '다시 하기', 62, 155, 62, 16, function () { startRun(result ? result.mode : 'normal'); }, 8), { tone: 'red' }),   // 05-5 요소 5
+        btn('share', '기록 공유', 132, 155, 62, 16, shareResult, 8),                                                                                     // 요소 2
+        btn('demo', '대처법 보기', 202, 155, 62, 16, function () { openDemo(result ? (DEMO_OF_TIP[result.tip] || result.tip) : 'climb'); }, 8),   // 구조조정 팁을 움직이는 장면으로
       ];
   }
   return [];
@@ -831,7 +845,7 @@ function activate(b) {
 /* ---------------------------------------------------------------------
  * 입력
  * ------------------------------------------------------------------- */
-function menuMode() { return screen !== 'play' || settingsOpen || helpOpen; }
+function menuMode() { return screen !== 'play' || settingsOpen || helpOpen || !!demo; }
 window.addEventListener('keydown', function (e) {
   unlockAudio();
   const c = e.code;
@@ -839,6 +853,7 @@ window.addEventListener('keydown', function (e) {
   if (e.repeat) return;
 
   if (c === 'Escape') {
+    if (demo) { closeDemo(); return; }
     if (helpOpen) { closeHelp(); return; }
     if (settingsOpen) { closeSettings(); return; }
     if (screen === 'play') { screen = 'pause'; focus = 0; return; }
@@ -1323,6 +1338,113 @@ function drawHelp() {
 }
 
 /* ---------------------------------------------------------------------
+ * 장애물 보기: 장애물마다 짧은 장면을 실제 규칙(updatePlay)으로 돌리고, 자동으로 맞는 키를 맞는 순간에 눌러 보여 준다.
+ * 조작법 화면의 "장애물 보기", 결과 화면의 "대처법 보기"(마지막 원인의 장면부터)에서 연다. 기록·점수에는 남지 않는다.
+ * 장면은 따로 만든 판(demo.run, demo.st)에서 돌고, 돌리거나 그릴 때만 run/st/screen을 잠깐 바꿔 끼운다.
+ * 칸 번호: 금 간·젖은 칸은 칸 번호로 정해진다 (171 금 감, 189 젖음, 204~209 와 372 근처는 안전)
+ * ------------------------------------------------------------------- */
+const DEMO_SEED = 7;
+const DEMOS = [
+  { id: 'climb', name: '계단 오르기', how: '다음 계단이 놓인 쪽 화살표(← →). 틀리면 하트 -1, 오르고 막을수록 남은 일수가 늘어요', at: 0, climb: [0.5, 0.85, 1.2, 1.55, 1.9, 2.25, 2.6], dur: 3.4 },
+  { id: 'clipboard', name: '결재판', how: '"딱… 딱!"의 두 번째 딱에 날아오는 쪽 키 (Q 왼쪽 · E 오른쪽)', at: 204, threat: 'clipboard' },
+  { id: 'rival', name: '경쟁 사원', how: '층 바닥을 걸어와 계단을 쫓아와요. 덤비는 순간 내가 올라온 쪽(뒤쪽) 키', at: 204, threat: 'rival', climb: [0.9, 1.25, 1.6, 1.95] },
+  { id: 'coffee', name: '커피', how: '× 표시는 막지 마세요! 막으면 하트 -1, 그냥 두면 지나갑니다', at: 204, threat: 'coffee' },
+  { id: 'monitor', name: '모니터', how: '형광등이 깜박이면 위에서 떨어져요. 유리 깨지는 소리 1초 뒤에 막기', at: 204, threat: 'monitor' },
+  { id: 'phone', name: '전화기', how: '아래에서 솟아올라요. 두 번째 벨이 울리는 순간에 막기', at: 204, threat: 'phone' },
+  { id: 'paper', name: '서류', how: '던진 쪽 반대편에서 맞아요. "!"가 뜬 쪽(맞는 쪽) 키로', at: 204, threat: 'paper' },
+  { id: 'sticky', name: '포스트잇', how: '막아도 튕겨 돌아와요. 색 = 남은 횟수 (분홍5 파랑4 초록3 노랑2 흰색1)', at: 204, threat: 'sticky', hp: 3 },
+  { id: 'suitcase', name: '서류가방', how: '"똑, 똑, 펑!" 터지는 순간에 막기', at: 204, threat: 'suitcase' },
+  { id: 'cracked', name: '금 간 계단', how: '서 있으면 흔들리다 1.5초면 무너져요. 멈추지 말고 다음 칸으로', at: 170, climb: [0.5, 1.5, 1.85, 2.2], dur: 3.2 },
+  { id: 'shock', name: '젖은 계단', how: '불꽃이 튀면 멈추고, 전기가 흐르고 난 뒤에 건너기 (3초마다 감전)', at: 188, wet: true },
+  { id: 'flash', name: '카메라 플래시', how: '막을 수 없지만 피해도 없어요. 눈이 부셔도 계속 오르세요', at: 372, flash: 0.8, climb: [1.5, 1.85, 2.2], dur: 3.2 },
+];
+const DEMO_OF_TIP = { wrong: 'climb', days: 'climb' };   // 결과 팁 → 장면 (나머지는 같은 id)
+const DEMO_KEY_X = [114, 136, 166, 188];
+
+function openDemo(id) {
+  const i = DEMOS.findIndex(function (d) { return d.id === id; });
+  demo = { idx: 0, run: null, st: null };
+  demoGo(i < 0 ? 0 : i);
+  focus = 1;   // Enter = 다음
+}
+function closeDemo() { demo = null; focus = 0; }
+// 장면 하나를 돌리는 동안만 run/st/screen을 장면 것으로 바꿔 끼운다 (진행 중인 판은 그대로 남는다)
+function withDemo(fn) {
+  const sr = run, sst = st, ss = screen;
+  run = demo.run; st = demo.st; screen = 'play';
+  try { fn(); } finally { demo.st = st; run = sr; st = sst; screen = ss; }
+}
+function demoGo(i) { withDemo(function () { demoStart(i); }); }
+function demoStart(i) {
+  const d = demo;
+  d.idx = (i + DEMOS.length) % DEMOS.length;
+  const sc = DEMOS[d.idx];
+  const r = makeRun(DEMO_SEED, 'normal');
+  run = d.run = r;
+  r.steps = sc.at; r.floor = floorOfSteps(sc.at); r.facing = dirAt(r.steps);
+  r.rankIdx = Math.min(CONFIG.rankNames.length - 1, CONFIG.promoteFloors.filter(function (f) { return r.floor >= f; }).length);
+  r.pvx = r.camX = stairX(r.steps); r.pvy = r.camY = -r.steps * CONFIG.stepH;
+  r.nextAttack = sc.threat ? 0.6 : 1e9; r.forceType = sc.threat || null;
+  r.nextFlash = sc.flash || 1e9;
+  Object.assign(d, { ci: 0, doneAt: sc.dur || null, spawned: false, crossed: null, sawLive: false, waiting: false, nowKey: 0, nowUntil: 0, holdUntil: 0 });
+}
+function demoPress(d, k) { d.nowKey = k; d.nowUntil = time + 0.35; }
+function demoUpdate(dt) {
+  withDemo(function () {
+    const d = demo, sc = DEMOS[d.idx], r = run;
+    if (r.ended) { demoStart(d.idx); return; }                       // 혹시 끝나면 처음부터
+    // 정해진 때에 오르기
+    while (sc.climb && d.ci < sc.climb.length && r.time >= sc.climb[d.ci]) { const dir = dirAt(r.steps); keyStep(dir); demoPress(d, dir < 0 ? 0 : 1); d.ci++; }
+    // 젖은 계단: 불꽃(예고)·전기를 기다렸다가, 전기가 그치면 건넌다
+    if (sc.wet) {
+      const sh = shockState(r.time);
+      if (d.crossed === null) {
+        if (sh.live) d.sawLive = true;
+        d.waiting = r.time > 0.8;
+        if (d.sawLive && !sh.live) { const dir = dirAt(r.steps); keyStep(dir); demoPress(d, dir < 0 ? 0 : 1); d.crossed = r.time; d.waiting = false; }
+      } else {
+        const k = d.crossed;
+        if (d.ci < 2 && r.time >= k + 0.35 * (d.ci + 1)) { const dir = dirAt(r.steps); keyStep(dir); demoPress(d, dir < 0 ? 0 : 1); d.ci++; }
+        if (d.doneAt === null) d.doneAt = k + 1.8;
+      }
+    }
+    // 막기: 막을 쪽이 정해진 위협은 도착 botParryLead 전에 (커피는 누르지 않는다)
+    r.projs.forEach(function (p) {
+      if (p.done) return;
+      const tti = p.impactT - r.time, s = p.side < 0 ? 0 : 1;
+      if (p.type === 'coffee') { if (tti > 0 && tti <= 0.35) d.holdUntil = time + 0.45; return; }
+      if (p.locked !== false && tti > 0 && tti <= CONFIG.botParryLead && r.time >= r.parryCd[s]) { keyParry(p.side); demoPress(d, s + 2); }
+    });
+    updatePlay(dt);
+    if (r.forceType && r.projs.length) {                              // 한 번만 내보낸다
+      r.forceType = null; r.nextAttack = 1e9; d.spawned = true;
+      if (sc.hp) r.projs[0].hp = sc.hp;
+    }
+    if (sc.flash && r.camFlash) r.nextFlash = 1e9;
+    if (sc.threat && d.spawned && !r.projs.length && d.doneAt === null) d.doneAt = r.time + 1.0;
+    r.hearts = CONFIG.maxHearts; r.days = CONFIG.maxDays;            // 장면은 끝나지 않는다
+    if (d.doneAt !== null && r.time >= d.doneAt) demoStart(d.idx + 1);
+  });
+}
+function drawDemo() {
+  const d = demo, sc = DEMOS[d.idx];
+  withDemo(function () { drawPlayWorld(); });
+  rect(0, 0, W, 36, PAL.bg, 0.88); rect(0, 36, W, 1, '#9AA0A8', 0.6);
+  txt('장애물 보기 ' + (d.idx + 1) + '/' + DEMOS.length, 6, 4, { size: 6, color: '#9AA0A8' });
+  txt(sc.name, 160, 4, { align: 'center', size: 11, bold: true, color: '#E3B65C' });
+  txt(sc.how, 160, 22, { align: 'center', size: 6 });
+  for (let i = 0; i < 4; i++) drawKeyCap(DEMO_KEY_X[i], 158, i, ['arrow_left', 'arrow_right', 'shield_q', 'shield_e'][i], ['←', '→', 'Q', 'E'][i]);
+  if (time < d.nowUntil) {                                          // 지금 누른 키
+    const kx = DEMO_KEY_X[d.nowKey] + 9;
+    txt('지금!', kx, 146, { align: 'center', base: 'middle', size: 7, bold: true, color: '#E3B65C' });
+    rect(kx - 1, 151, 2, 5, '#E3B65C');
+  }
+  if (time < d.holdUntil) txt('누르지 마세요!', 160, 146, { align: 'center', base: 'middle', size: 7, bold: true, color: PAL.red });
+  if (d.waiting) txt('기다리기…', 160, 146, { align: 'center', base: 'middle', size: 7, bold: true, color: '#E3B65C' });
+  drawButtons();
+}
+
+/* ---------------------------------------------------------------------
  * 05-5 결과
  * ------------------------------------------------------------------- */
 function drawVerdict(x, y, w, h, promo, subtext) {
@@ -1433,7 +1555,8 @@ function shareResult() {
 function update(dt) {
   time += dt;
   if (resultLock > 0) resultLock -= dt;
-  if (screen === 'play' && run && !settingsOpen) updatePlay(dt);
+  if (demo) demoUpdate(dt);
+  else if (screen === 'play' && run && !settingsOpen) updatePlay(dt);
   syncAudio(false);
 }
 function draw() {
@@ -1453,6 +1576,7 @@ function draw() {
     drawSettings();
   }
   if (helpOpen) drawHelp();
+  if (demo) drawDemo();
 }
 function publish() {
   S.ready = assetsReady;

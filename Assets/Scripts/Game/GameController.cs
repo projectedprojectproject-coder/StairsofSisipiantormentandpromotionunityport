@@ -36,6 +36,7 @@ namespace Stairs.Game
         public RunResult result { get; private set; }
         public string FontName => font ? font.name : "없음";
         int focus;
+        Demo demo;   // 장애물 보기 (조작법·결과 화면에서 연다)
         double resultLock, resultT0;
         bool resultStamped, settingsOpen, helpOpen;
         string toastText = ""; double toastUntil;
@@ -143,7 +144,8 @@ namespace Stairs.Game
         {
             time += dt;
             if (resultLock > 0) resultLock -= dt;
-            if (screen == Screen.Play && run != null && !settingsOpen)
+            if (demo != null) DemoUpdate(dt);
+            else if (screen == Screen.Play && run != null && !settingsOpen)
             {
                 run.Bot = bot;
                 if (run.Tick(dt)) FinishRun();
@@ -173,6 +175,7 @@ namespace Stairs.Game
             }
             if (settingsOpen) DrawSettings();
             if (helpOpen) DrawHelp();
+            if (demo != null) DrawDemo();
         }
 
         // ================================================================ 소리 (웹 sfx/desiredBgm/syncAudio)
@@ -247,7 +250,16 @@ namespace Stairs.Game
 
         List<Btn> GetButtons()
         {
-            if (helpOpen) return new List<Btn> { B("close", "닫기", 110, 146, 100, 14, CloseHelp) };
+            if (demo != null)
+            {
+                return new List<Btn>
+                {
+                    B("dprev", "◀ 이전", 8, 158, 48, 16, () => DemoGo(demo.idx - 1), 8),
+                    B("dnext", "다음 ▶", 60, 158, 48, 16, () => DemoGo(demo.idx + 1), 8),
+                    B("dclose", "닫기", 264, 158, 48, 16, CloseDemo, 8),
+                };
+            }
+            if (helpOpen) return new List<Btn> { B("demo", "장애물 보기", 60, 146, 96, 14, () => OpenDemo("climb")), B("close", "닫기", 164, 146, 96, 14, CloseHelp) };
             if (settingsOpen)
             {
                 return new List<Btn>
@@ -278,15 +290,19 @@ namespace Stairs.Game
                         B("main", "메인으로", 100, 120, 120, 14, () => { Debug.Log("[stairs] quit to title"); ToTitle(); }),
                     };
                 case Screen.Result:
-                    var again = B("again", result != null && result.promoted ? "1층부터 다시" : "다시 하기", 96, 155, 62, 16, () => StartRun(result != null ? result.mode : GameMode.Normal), 8); again.tone = "red";   // 05-5 요소 5
-                    return new List<Btn> { again, B("share", "기록 공유", 166, 155, 62, 16, () => DoShare(), 8) };   // 요소 2
+                    var again = B("again", result != null && result.promoted ? "1층부터 다시" : "다시 하기", 62, 155, 62, 16, () => StartRun(result != null ? result.mode : GameMode.Normal), 8); again.tone = "red";   // 05-5 요소 5
+                    return new List<Btn>
+                    {
+                        again, B("share", "기록 공유", 132, 155, 62, 16, () => DoShare(), 8),   // 요소 2
+                        B("demo", "대처법 보기", 202, 155, 62, 16, () => OpenDemo(result != null ? (DemoOfTip.TryGetValue(result.tip ?? "", out var dt) ? dt : result.tip) : "climb"), 8),   // 구조조정 팁을 움직이는 장면으로
+                    };
             }
             return new List<Btn>();
         }
         void Activate(Btn b) { if (b == null) return; Sfx("sfx_click"); b.fn(); }
 
         // ================================================================ 입력 (웹 keydown/mousemove/mousedown/visibilitychange)
-        bool MenuMode() => screen != Screen.Play || settingsOpen || helpOpen;
+        bool MenuMode() => screen != Screen.Play || settingsOpen || helpOpen || demo != null;
 
         void HandleKeys()
         {
@@ -309,6 +325,7 @@ namespace Stairs.Game
         {
             if (c == "Escape")
             {
+                if (demo != null) { CloseDemo(); return; }
                 if (helpOpen) { CloseHelp(); return; }
                 if (settingsOpen) { CloseSettings(); return; }
                 if (screen == Screen.Play) { screen = Screen.Pause; focus = 0; return; }
@@ -934,6 +951,143 @@ namespace Stairs.Game
             Txt("31층~ 전화기 · 41층~ 서류(반대쪽) · 61층~ 포스트잇(색=횟수)", 160, 122, T(6, "center", color: PalGreen));
             Txt("61층~ 카메라 플래시(무해) · 71층~ 서류가방(터질 때 막기)", 160, 129, T(6, "center", color: PalGreen));
             Txt("틀린 방향·놓친 공격은 하트 -1, 새 층마다 하트 +1", 160, 136, T(6, "center", color: PalText));
+            DrawButtons();
+        }
+
+        // ================================================================ 장애물 보기 (웹 DEMOS/openDemo/demoUpdate/drawDemo)
+        // 장애물마다 짧은 장면을 실제 규칙(Tick)으로 돌리고, 자동으로 맞는 키를 맞는 순간에 눌러 보여 준다. 기록·점수에는 남지 않는다.
+        // 장면은 따로 만든 판(demo.run)에서 돌고, 돌리거나 그릴 때만 run/screen/플레이어 동작을 잠깐 바꿔 끼운다.
+        // 칸 번호: 금 간·젖은 칸은 칸 번호로 정해진다 (171 금 감, 189 젖음, 204~209 와 372 근처는 안전)
+        sealed class DemoScene
+        {
+            public string id, name, how; public int at; public ThreatType? threat; public double[] climb; public double? dur, flash; public int hp; public bool wet;
+        }
+        sealed class Demo
+        {
+            public int idx, ci, nowKey; public RunSimulation run; public string animState = ""; public double animStart;
+            public double? doneAt, crossed; public bool spawned, sawLive, waiting; public double nowUntil, holdUntil;
+        }
+        const int DemoSeed = 7;
+        static readonly DemoScene[] Demos =
+        {
+            new DemoScene { id = "climb", name = "계단 오르기", how = "다음 계단이 놓인 쪽 화살표(← →). 틀리면 하트 -1, 오르고 막을수록 남은 일수가 늘어요", at = 0, climb = new[] { 0.5, 0.85, 1.2, 1.55, 1.9, 2.25, 2.6 }, dur = 3.4 },
+            new DemoScene { id = "clipboard", name = "결재판", how = "\"딱… 딱!\"의 두 번째 딱에 날아오는 쪽 키 (Q 왼쪽 · E 오른쪽)", at = 204, threat = ThreatType.Clipboard },
+            new DemoScene { id = "rival", name = "경쟁 사원", how = "층 바닥을 걸어와 계단을 쫓아와요. 덤비는 순간 내가 올라온 쪽(뒤쪽) 키", at = 204, threat = ThreatType.Rival, climb = new[] { 0.9, 1.25, 1.6, 1.95 } },
+            new DemoScene { id = "coffee", name = "커피", how = "× 표시는 막지 마세요! 막으면 하트 -1, 그냥 두면 지나갑니다", at = 204, threat = ThreatType.Coffee },
+            new DemoScene { id = "monitor", name = "모니터", how = "형광등이 깜박이면 위에서 떨어져요. 유리 깨지는 소리 1초 뒤에 막기", at = 204, threat = ThreatType.Monitor },
+            new DemoScene { id = "phone", name = "전화기", how = "아래에서 솟아올라요. 두 번째 벨이 울리는 순간에 막기", at = 204, threat = ThreatType.Phone },
+            new DemoScene { id = "paper", name = "서류", how = "던진 쪽 반대편에서 맞아요. \"!\"가 뜬 쪽(맞는 쪽) 키로", at = 204, threat = ThreatType.Paper },
+            new DemoScene { id = "sticky", name = "포스트잇", how = "막아도 튕겨 돌아와요. 색 = 남은 횟수 (분홍5 파랑4 초록3 노랑2 흰색1)", at = 204, threat = ThreatType.Sticky, hp = 3 },
+            new DemoScene { id = "suitcase", name = "서류가방", how = "\"똑, 똑, 펑!\" 터지는 순간에 막기", at = 204, threat = ThreatType.Suitcase },
+            new DemoScene { id = "cracked", name = "금 간 계단", how = "서 있으면 흔들리다 1.5초면 무너져요. 멈추지 말고 다음 칸으로", at = 170, climb = new[] { 0.5, 1.5, 1.85, 2.2 }, dur = 3.2 },
+            new DemoScene { id = "shock", name = "젖은 계단", how = "불꽃이 튀면 멈추고, 전기가 흐르고 난 뒤에 건너기 (3초마다 감전)", at = 188, wet = true },
+            new DemoScene { id = "flash", name = "카메라 플래시", how = "막을 수 없지만 피해도 없어요. 눈이 부셔도 계속 오르세요", at = 372, flash = 0.8, climb = new[] { 1.5, 1.85, 2.2 }, dur = 3.2 },
+        };
+        static readonly Dictionary<string, string> DemoOfTip = new Dictionary<string, string> { { "wrong", "climb" }, { "days", "climb" } };   // 결과 팁 → 장면
+        static readonly float[] DemoKeyX = { 114, 136, 166, 188 };
+
+        public bool DemoOpen => demo != null;
+        public int DemoIndex => demo != null ? demo.idx : -1;
+        public void OpenDemo(string id)
+        {
+            int i = Array.FindIndex(Demos, d => d.id == id);
+            demo = new Demo();
+            DemoGo(i < 0 ? 0 : i);
+            focus = 1;   // Enter = 다음
+        }
+        public void CloseDemo() { demo = null; focus = 0; }
+        public void DemoNext() { if (demo != null) DemoGo(demo.idx + 1); }
+        // 장면 하나를 돌리는 동안만 run/screen/플레이어 동작을 장면 것으로 바꿔 끼운다 (진행 중인 판은 그대로 남는다)
+        void WithDemo(Action fn)
+        {
+            var sr = run; var ss = screen; string sa = animState; double sst = animStart;
+            run = demo.run; screen = Screen.Play; animState = demo.animState; animStart = demo.animStart;
+            try { fn(); }
+            finally { demo.animState = animState; demo.animStart = animStart; run = sr; screen = ss; animState = sa; animStart = sst; }
+        }
+        void DemoGo(int i) => WithDemo(() => DemoStart(i));
+        void DemoStart(int i)
+        {
+            var d = demo;
+            d.idx = (i % Demos.Length + Demos.Length) % Demos.Length;
+            var sc = Demos[d.idx];
+            var r = new RunSimulation(C, DemoSeed, GameMode.Normal);
+            r.Sfx += Sfx;
+            run = d.run = r;
+            r.steps = sc.at; r.floor = r.Stairs.FloorOfSteps(sc.at); r.facing = r.Stairs.DirAt(r.steps);
+            int rk = 0; foreach (var f in C.promoteFloors) if (r.floor >= f) rk++;
+            r.rankIdx = Math.Min(C.rankNames.Length - 1, rk);
+            r.SnapCamera();
+            r.nextAttack = sc.threat.HasValue ? 0.6 : 1e9; r.forceType = sc.threat;
+            r.nextFlash = sc.flash ?? 1e9;
+            d.ci = 0; d.doneAt = sc.dur; d.spawned = false; d.crossed = null; d.sawLive = false; d.waiting = false; d.nowKey = 0; d.nowUntil = 0; d.holdUntil = 0;
+            animState = ""; animStart = 0;
+        }
+        void DemoPress(Demo d, int k) { d.nowKey = k; d.nowUntil = time + 0.35; }
+        void DemoStepNow(Demo d) { int dir = run.Stairs.DirAt(run.steps); KeyStep(dir); DemoPress(d, dir < 0 ? 0 : 1); }
+        void DemoUpdate(double dt)
+        {
+            WithDemo(() =>
+            {
+                var d = demo; var sc = Demos[d.idx]; var r = run;
+                if (r.Ended) { DemoStart(d.idx); return; }                       // 혹시 끝나면 처음부터
+                // 정해진 때에 오르기
+                while (sc.climb != null && d.ci < sc.climb.Length && r.time >= sc.climb[d.ci]) { DemoStepNow(d); d.ci++; }
+                // 젖은 계단: 불꽃(예고)·전기를 기다렸다가, 전기가 그치면 건넌다
+                if (sc.wet)
+                {
+                    var sh = r.Stairs.Shock(r.time);
+                    if (d.crossed == null)
+                    {
+                        if (sh.live) d.sawLive = true;
+                        d.waiting = r.time > 0.8;
+                        if (d.sawLive && !sh.live) { DemoStepNow(d); d.crossed = r.time; d.waiting = false; }
+                    }
+                    else
+                    {
+                        double k = d.crossed.Value;
+                        if (d.ci < 2 && r.time >= k + 0.35 * (d.ci + 1)) { DemoStepNow(d); d.ci++; }
+                        if (d.doneAt == null) d.doneAt = k + 1.8;
+                    }
+                }
+                // 막기: 막을 쪽이 정해진 위협은 도착 botParryLead 전에 (커피는 누르지 않는다)
+                foreach (var p in r.threats)
+                {
+                    if (p.done) continue;
+                    double tti = p.impactT - r.time; int s = p.side < 0 ? 0 : 1;
+                    if (p.type == ThreatType.Coffee) { if (tti > 0 && tti <= 0.35) d.holdUntil = time + 0.45; continue; }
+                    if (p.SideKnown && tti > 0 && tti <= D(C.botParryLead) && r.time >= r.parryCd[s]) { KeyParry(p.side); DemoPress(d, s + 2); }
+                }
+                r.Tick(dt);
+                if (r.forceType.HasValue && r.threats.Count > 0)                 // 한 번만 내보낸다
+                {
+                    r.forceType = null; r.nextAttack = 1e9; d.spawned = true;
+                    if (sc.hp > 0) r.threats[0].hp = sc.hp;
+                }
+                if (sc.flash.HasValue && r.flashing) r.nextFlash = 1e9;
+                if (sc.threat.HasValue && d.spawned && r.threats.Count == 0 && d.doneAt == null) d.doneAt = r.time + 1.0;
+                r.hearts = C.maxHearts; r.days = D(C.maxDays);                   // 장면은 끝나지 않는다
+                if (d.doneAt != null && r.time >= d.doneAt.Value) DemoStart(d.idx + 1);
+            });
+        }
+        void DrawDemo()
+        {
+            var d = demo; var sc = Demos[d.idx];
+            WithDemo(DrawPlayWorld);
+            Rect(0, 0, W, 36, PalBg, 0.88); Rect(0, 36, W, 1, "#9AA0A8", 0.6);
+            Txt("장애물 보기 " + (d.idx + 1) + "/" + Demos.Length, 6, 4, T(6, color: Hex("#9AA0A8")));
+            Txt(sc.name, 160, 4, T(11, "center", bold: true, color: Hex("#E3B65C")));
+            Txt(sc.how, 160, 22, T(6, "center"));
+            string[] icons = { "arrow_left", "arrow_right", "shield_q", "shield_e" }, labels = { "←", "→", "Q", "E" };
+            for (int i = 0; i < 4; i++) DrawKeyCap(DemoKeyX[i], 158, i, icons[i], labels[i]);
+            if (time < d.nowUntil)
+            {   // 지금 누른 키
+                double kx = DemoKeyX[d.nowKey] + 9;
+                Txt("지금!", kx, 146, T(7, "center", "middle", true, Hex("#E3B65C")));
+                Rect(kx - 1, 151, 2, 5, "#E3B65C");
+            }
+            if (time < d.holdUntil) Txt("누르지 마세요!", 160, 146, T(7, "center", "middle", true, PalRed));
+            if (d.waiting) Txt("기다리기…", 160, 146, T(7, "center", "middle", true, Hex("#E3B65C")));
             DrawButtons();
         }
 

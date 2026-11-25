@@ -237,6 +237,42 @@ namespace Stairs.EditorTools
             if (report.summary.result != UnityEditor.Build.Reporting.BuildResult.Succeeded) EditorApplication.Exit(1);
         }
 
+        /// <summary>
+        /// 배포용 Windows 실행 파일. Unity Hub 없이 StairsOfPromotion.exe를 두 번 눌러 실행한다.
+        ///   메뉴 Stairs > Build Windows Game, 또는
+        ///   Unity.exe -batchmode -projectPath . -executeMethod Stairs.EditorTools.StairsAssetImporter.BuildWindowsGame [-stairsBuild 폴더] -quit
+        /// 폴더를 주지 않으면 Builds/Windows (저장소에는 넣지 않는다). 같은 폴더의 StairsOfPromotion_Data 폴더도 함께 있어야 실행된다.
+        /// </summary>
+        [MenuItem("Stairs/Build Windows Game")]
+        public static void BuildWindowsGame()
+        {
+            string outDir = Arg("-stairsBuild") ?? Path.GetFullPath("Builds/Windows");
+            Import(DefaultSource);
+            CreateScene();
+            // 웹 판처럼 창으로 1280x720 (논리 320x180의 4배), 크기 바꾸기 가능, 초점이 없어도 계속 돈다
+            PlayerSettings.productName = "승급의 계단";
+            PlayerSettings.companyName = "승급의 계단 제작팀";
+            PlayerSettings.fullScreenMode = FullScreenMode.Windowed;
+            PlayerSettings.defaultScreenWidth = 1280;
+            PlayerSettings.defaultScreenHeight = 720;
+            PlayerSettings.resizableWindow = true;
+            PlayerSettings.runInBackground = true;
+            PlayerSettings.SplashScreen.show = false;
+            if (Directory.Exists(outDir)) Directory.Delete(outDir, true);
+            var report = BuildPipeline.BuildPlayer(new BuildPlayerOptions
+            {
+                scenes = new[] { "Assets/Scenes/Game.unity" },
+                locationPathName = Path.Combine(outDir, "StairsOfPromotion.exe"),
+                target = BuildTarget.StandaloneWindows64,
+                options = BuildOptions.None,
+            });
+            // 배포에 필요 없는 디버그 기호 폴더는 지운다
+            foreach (var d in Directory.GetDirectories(outDir, "*_BackUpThisFolder_ButDontShipItWithYourGame")) Directory.Delete(d, true);
+            Debug.Log("[Stairs] Windows 게임 빌드: " + report.summary.result + " (" + report.summary.totalErrors + " errors, " + (report.summary.totalSize / (1024 * 1024)) + " MB) → " + outDir);
+            if (report.summary.result != UnityEditor.Build.Reporting.BuildResult.Succeeded) { if (Application.isBatchMode) EditorApplication.Exit(1); }
+            else if (!Application.isBatchMode) EditorUtility.RevealInFinder(Path.Combine(outDir, "StairsOfPromotion.exe"));
+        }
+
         static string Arg(string name)
         {
             var a = System.Environment.GetCommandLineArgs();

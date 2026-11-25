@@ -3,8 +3,11 @@
 // 웹 game.js를 node에서 돌려 경쟁 사원 잠금 쪽 기대값을 뽑는다.
 const fs = require('fs');
 let src = fs.readFileSync(process.argv[2], 'utf8');
+// 경쟁 사원을 강제로 낸다. 새 웹 판은 r.forceType이 있고, 예전 판은 spawnAttack 한 줄을 바꿔 끼운다
 src = src.replace("const type = pickType(r), rival = type === 'rival';",
   "const type = (function (t0) { return globalThis.__force || t0; })(pickType(r)), rival = type === 'rival';");
+src = src.replace("const picked = pickType(r), type = r.forceType || picked, rival = type === 'rival';",
+  "const picked = pickType(r), type = globalThis.__force || r.forceType || picked, rival = type === 'rival';");
 src = src.replace(/publish\(\);\s*requestAnimationFrame\(frame\);\s*\}\)\(\);?\s*$/,
   "globalThis.__api = { startRun, updatePlay, doStep, doParry, dirAt, stairX, get run() { return run; }, logArr, setScreen: s => { screen = s; } };\n})();");
 const noop = () => {};

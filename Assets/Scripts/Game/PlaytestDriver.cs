@@ -56,6 +56,14 @@ namespace Stairs.Game
             Line(AudioReport(gc, "타이틀"));
             gc.OpenSettings(); yield return new WaitForSecondsRealtime(0.3f); yield return Shot("02_settings");
             gc.OpenHelp(); yield return new WaitForSecondsRealtime(0.3f); yield return Shot("03_help");
+            // 장애물 보기: 장면마다 보기 좋은 순간에 찍는다 (web_shots.py와 같은 순간)
+            gc.OpenDemo("climb");
+            for (int i = 0; i < DemoMoments.Length; i++)
+            {
+                yield return new WaitForSecondsRealtime(DemoMoments[i]); yield return Shot("03_demo_" + (i + 1).ToString("00"));
+                gc.DemoNext(); yield return null;
+            }
+            gc.CloseDemo();
             gc.CloseHelp(); gc.CloseSettings();
             gc.GoLobby(); yield return new WaitForSecondsRealtime(0.5f); yield return Shot("04_lobby");
 
@@ -110,6 +118,8 @@ namespace Stairs.Game
                 + ", 음소거 " + (gc.audioDirector && gc.audioDirector.muted) + ", 반복 " + (gc.audioDirector ? gc.audioDirector.Describe() : "-")
                 + ", 출력 RMS " + System.Math.Sqrt(sum / buf.Length).ToString("0.0000");
         }
+
+        static readonly float[] DemoMoments = { 1.3f, 1.45f, 1.9f, 1.5f, 1.55f, 1.5f, 1.5f, 1.9f, 1.5f, 1.2f, 2.2f, 0.85f };
 
         IEnumerator Steps(GameController gc, int n) => Until(() => gc.run == null || gc.run.Ended || gc.run.steps >= n, 90);
 
