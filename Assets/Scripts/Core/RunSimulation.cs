@@ -30,7 +30,8 @@ namespace Stairs.Core
         public string debris;
         public bool returned;     // 스테이플러: 반대쪽에서 돌아오는 중
         public int k;             // 종이비행기 편대·편지: 지나간 수
-        public bool over, passed, hopped;   // 의자: 머리 위로 넘어가는지, 넘어갔는지, 튀는 소리를 냈는지
+        public int up, down; public double? fallT;   // 의자: 생길 때 칸에서 위·아래로 같은 계단 줄에 이어진 칸 수, 계단 밖으로 떨어진 때
+        public double ax, ay; public int s0;   // 정해진 길: 생길 때(또는 튕겨 돌아올 때) 플레이어가 서 있던 자리(world)와 칸 (그리기용)
         public int cueK;          // 편지: 박자 소리를 낸 수
         // ---- 경쟁 사원만 ----
         public bool locked;       // 막을 쪽이 정해졌다 (치기 rivalLeap초 전)
@@ -336,8 +337,13 @@ namespace Stairs.Core
             t.ph = decor.Next() * 6.28;
             t.hp = type == ThreatType.Sticky ? 1 + (int)Math.Floor(rng.Next() * C.stickyMax) : 1;
             t.debris = decor.Next() < 0.5 ? "document" : "clipboard";
-            t.over = type == ThreatType.Chair && rng.Next() < D(C.chairOverShare);   // 의자: 머리 위로 넘어가는지 (웹과 같은 rng 순서)
-            if (type == ThreatType.Chair) t.side = t.from = Stairs.DirAt(steps);       // 의자는 위 계단(오를 쪽)에서 굴러 내려온다
+            if (type == ThreatType.Chair)
+            {   // 의자: 위 계단(오를 쪽)에서 생길 때 플레이어 칸의 계단 줄을 따라 내려온다 (정해진 길)
+                t.side = t.from = Stairs.DirAt(steps); t.spawnT = t.impactT - 3 * D(C.chairHop);
+                t.up = 0; while (t.up < 6 && Stairs.DirAt(steps + t.up) == t.side) t.up++;
+                t.down = 0; while (t.down < 8 && steps - 1 - t.down >= 0 && Stairs.DirAt(steps - 1 - t.down) == t.side) t.down++;
+            }
+            t.ax = Stairs.StairX(steps); t.ay = -steps * D(C.stepH); t.s0 = steps;       // 정해진 길 (따라가지 않는다)
             if (rival)
             {
                 t.locked = false; t.phase = RivalPhase.Walk; t.ri = 0;
@@ -496,7 +502,7 @@ namespace Stairs.Core
             if (gz.active && !gz.rest)
             {
                 int key = gz.cycle * 2 + (gz.sweep ? 1 : 0);
-                if (key != gazeKey) { gazeKey = key; if (gz.warn) { Sfx?.Invoke("sfx_gaze_warn"); Log?.Invoke("gaze warn"); } else { Sfx?.Invoke("sfx_gaze_laser"); Log?.Invoke("gaze sweep"); } }
+                if (key != gazeKey) { gazeKey = key; if (gz.warn) { Sfx?.Invoke("sfx_gaze_warn"); Log?.Invoke("gaze warn"); } else { Sfx?.Invoke("sfx_gaze_laser"); Log?.Invoke("gaze sweep"); shake = Math.Max(shake, 0.18); } }
             }
             if (floor >= C.flashFromFloor || Mode != GameMode.Normal)   // 카메라 플래시: 막을 수 없지만 피해도 없다
             {
@@ -520,12 +526,22 @@ namespace Stairs.Core
                 if (p.IsRival) UpdateRival(p, dt);
                 if (p.type == ThreatType.Monitor && !p.shattered && time >= p.spawnT) { p.shattered = true; Sfx?.Invoke("sfx_monitor_shatter"); }
                 // 패링 타이밍 소리. 경쟁 사원은 막을 쪽이 정해진 뒤에만
-                if (Cues.TryGetValue(p.type, out var cue) && !p.cued && !p.done && p.SideKnown && !(p.type == ThreatType.Chair && p.over) && time >= p.impactT - cue.lead) { p.cued = true; Sfx?.Invoke(cue.id); Log?.Invoke("cue " + p.type.ToString().ToLowerInvariant()); }
-                if (p.type == ThreatType.Chair && p.over)   // 크게 튀는 의자: 머리 위로 넘어가 계속 굴러 떨어진다 (해 없음)
+                if (Cues.TryGetValue(p.type, out var cue) && !p.cued && !p.done && p.SideKnown && p.type != ThreatType.Chair && time >= p.impactT - cue.lead) { p.cued = true; Sfx?.Invoke(cue.id); Log?.Invoke("cue " + p.type.ToString().ToLowerInvariant()); }
+                if (p.type == ThreatType.Chair)   // 튀어 내려오는 의자: 두 칸씩 튀며 내려오고, 플레이어 몸에 닿는 순간 맞는다 (그 순간 오는 쪽 막기가 켜져 있으면 막힌다)
                 {
-                    if (!p.hopped && time >= p.impactT - 0.35) { p.hopped = true; Sfx?.Invoke("sfx_chair_hop"); }
-                    if (!p.passed && time >= p.impactT) { p.passed = true; Log?.Invoke("chair over"); }
-                    if (time >= p.impactT + 0.8) p.done = true;
+                    if (p.done) continue;
+                    if (p.fallT.HasValue) { if (time >= p.fallT.Value + 0.6) p.done = true; continue; }   // 계단 밖으로 떨어지는 중
+                    var c = ChairPos(p, time);
+                    if (c.phase == ChairPhase.Fall) { p.fallT = c.tPeak; Log?.Invoke("chair off"); continue; }   // 앞에 칸이 없다
+                    var nh = ChairHitT(p);
+                    if (nh.HasValue && p.cueK != nh.Value.k && time >= nh.Value.t - Cues[ThreatType.Chair].lead) { p.cueK = nh.Value.k; Sfx?.Invoke("sfx_cue_chair"); Log?.Invoke("cue chair"); }
+                    if (c.phase != ChairPhase.Pre && ChairTouches(c))
+                    {   // 몸에 닿았다
+                        int cs = p.side < 0 ? 0 : 1; p.done = true;
+                        if (parryStart[cs] <= time && time <= parryEnd[cs]) GainParry(p, time);
+                        else { lastKind = "chair"; LoseHeart("attack"); }
+                        if (Ended) break;
+                    }
                     continue;
                 }
                 if (p.type == ThreatType.Envelope)   // 편지 3연발: 한 장씩 도착할 때 그 쪽 막기가 켜져 있어야 한다
@@ -572,12 +588,12 @@ namespace Stairs.Core
                     GainParry(p);
                     if (p.type == ThreatType.Stapler && !p.returned)   // 스테이플러: 부메랑처럼 반대쪽에서 돌아온다
                     {
-                        p.returned = true; p.side = -p.side; p.from = p.side; p.done = false; p.cued = false; p.spawnT = time; p.impactT = time + D(C.staplerReturn);
+                        p.returned = true; p.side = -p.side; p.from = p.side; p.done = false; p.cued = false; p.spawnT = time; p.impactT = time + D(C.staplerReturn); p.ax = Stairs.StairX(steps); p.ay = -steps * D(C.stepH);
                         Log?.Invoke("stapler return");
                     }
                     if (p.type == ThreatType.Sticky && p.hp > 1)   // 포스트잇: 튕겨 나갔다가 같은 쪽으로 돌아온다
                     {
-                        p.hp--; p.done = false; p.bounce = true; p.cued = false; p.spawnT = time; p.impactT = time + D(C.warnTime);
+                        p.hp--; p.done = false; p.bounce = true; p.cued = false; p.spawnT = time; p.impactT = time + D(C.warnTime); p.ax = Stairs.StairX(steps); p.ay = -steps * D(C.stepH);
                         Log?.Invoke("sticky bounce hp=" + p.hp);
                     }
                 }
@@ -592,6 +608,47 @@ namespace Stairs.Core
             return false;
         }
 
+        public enum ChairPhase { Pre, Drop, Hop, Fall }
+        public struct ChairState { public double x, y, u, e, tPeak; public ChairPhase phase; }
+        public const double ChairArc = 30;
+        /// <summary>의자 자리(world, 의자 가운데) (웹 chairPos). 생길 때 칸(s0)의 계단 줄을 따라: 첫 실제 칸(j = 6, 4, 2, 0 중 up 이하로 가장 높은 칸)까지는
+        /// 층참에서 떨어져 들어오고, 두 칸씩 30px 아치로 튀며(칸 윗면에 내려앉는다), 앞에 칸이 없는 튀기는 꼭대기부터 그대로 떨어진다. 규칙과 그리기가 같이 쓴다.</summary>
+        public ChairState ChairPos(Threat p, double T)
+        {
+            int s = p.side, n0 = p.s0; double hop = D(C.chairHop), stepH = D(C.stepH);
+            double dx = Math.Abs(Stairs.StairX(n0 + 1) - Stairs.StairX(n0)); if (dx == 0) dx = D(C.stepW);
+            double Lx(int j) => Stairs.StairX(n0) + s * j * dx;
+            double Ly(int j) => -(n0 + j) * stepH - 7;
+            int kF = Math.Max(0, (int)Math.Ceiling((6 - p.up) / 2.0)), jF = 6 - 2 * kF, kOff = (int)Math.Floor((6 + p.down) / 2.0) + 1;
+            double tPeak = p.spawnT + (kOff - 0.5) * hop, t = T - p.spawnT;
+            if (T >= tPeak)
+            {
+                double ax = Lx(8 - 2 * kOff), ay = Ly(8 - 2 * kOff), bx = Lx(6 - 2 * kOff), by = Ly(6 - 2 * kOff), e = T - tPeak;
+                return new ChairState { x = (ax + bx) / 2 + (bx - ax) / hop * e, y = (ay + by) / 2 - ChairArc + 350 * e * e, phase = ChairPhase.Fall, e = e, tPeak = tPeak };
+            }
+            if (t < 0) return new ChairState { x = Lx(6), y = Ly(6) - (p.up < 6 ? 40 : 0), phase = ChairPhase.Pre, tPeak = tPeak };
+            if (t < kF * hop)
+            {
+                double u = t / (kF * hop);
+                return new ChairState { x = Lerp(Lx(6), Lx(jF), u), y = Lerp(Ly(6) - 40, Ly(jF), u * u), phase = ChairPhase.Drop, u = u, tPeak = tPeak };
+            }
+            double f = t / hop; int k = (int)Math.Floor(f); double uu = f - k;
+            return new ChairState { x = Lerp(Lx(6 - 2 * k), Lx(4 - 2 * k), uu), y = Lerp(Ly(6 - 2 * k), Ly(4 - 2 * k), uu) - Math.Sin(uu * Math.PI) * ChairArc, phase = ChairPhase.Hop, u = uu, tPeak = tPeak };
+        }
+        /// <summary>의자 상자(가운데 ±7, ±8)가 플레이어 몸(발, 가로 ±6, 높이 26)에 닿는가 (웹 chairTouches). 플레이어 자리는 보이는 자리 pvx, pvy.</summary>
+        public bool ChairTouches(ChairState c) => Math.Abs(c.x - pvx) < 13 && c.y + 8 > pvy - 26 && c.y - 8 < pvy;
+        /// <summary>의자가 다음에 플레이어 몸에 닿을 때 (웹 chairHitT, 1.5초 안에, 플레이어가 지금 자리에 그대로 있다면). 없으면 null.</summary>
+        public (int k, double t)? ChairHitT(Threat p)
+        {
+            if (p.fallT.HasValue) return null;
+            for (int i = 1; i <= 90; i++)
+            {
+                double T = time + i / 60.0; var c = ChairPos(p, T);
+                if (c.phase == ChairPhase.Fall) return null;
+                if (c.phase != ChairPhase.Pre && ChairTouches(c)) return (JsRound(T * 60), T);
+            }
+            return null;
+        }
         /// <summary>막기에 성공했을 때 (웹 gainParry): 점수·콤보·일수·불꽃·글자. 종이비행기 편대는 다 막은 뒤 한 번.</summary>
         void GainParry(Threat p, double? th = null)   // th: 맞는 순간 (편지는 장마다 다르다)
         {
@@ -611,7 +668,7 @@ namespace Stairs.Core
                 double a = decor.Next() * Math.PI * 2;
                 sparks.Add(new Spark { x = px, y = PlayerY - 14, vx = Math.Cos(a) * 50, vy = Math.Sin(a) * 50 - 20, olive = k % 2 == 0 });
             }
-            AddText("+" + D(C.parryDays).ToString(System.Globalization.CultureInfo.InvariantCulture), px, PlayerY - 30, "green");
+            AddText("+" + D(C.parryDays).ToString(System.Globalization.CultureInfo.InvariantCulture), px, PlayerY - 42, "green");
             Log?.Invoke("parry ok combo=" + combo + " x" + mult);
         }
 
@@ -645,8 +702,9 @@ namespace Stairs.Core
             foreach (var p in threats) if (p.type == ThreatType.Airplane && !p.done && time >= p.impactT - D(C.botParryLead)) held[p.side < 0 ? 0 : 1] = true;
             foreach (var p in threats)
             {
-                if (p.done || p.type == ThreatType.Coffee || p.type == ThreatType.Airplane || !p.SideKnown || (p.type == ThreatType.Chair && p.over)) continue;   // 넘어가는 의자는 막지 않는다
-                double tti = (p.type == ThreatType.Envelope ? p.impactT + p.k * D(C.envelopeGap) : p.impactT) - time;
+                if (p.done || p.type == ThreatType.Coffee || p.type == ThreatType.Airplane || !p.SideKnown) continue;
+                var ch = p.type == ThreatType.Chair ? ChairHitT(p) : null; if (p.type == ThreatType.Chair && !ch.HasValue) continue;   // 의자: 내 칸에 내려앉을 때만 막는다
+                double tti = (ch.HasValue ? ch.Value.t : p.type == ThreatType.Envelope ? p.impactT + p.k * D(C.envelopeGap) : p.impactT) - time;
                 int s = p.side < 0 ? 0 : 1;
                 if (tti > 0 && tti <= D(C.botParryLead) && time >= parryCd[s]) Parry(p.side);
             }

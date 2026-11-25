@@ -41,7 +41,7 @@ Unity.exe -batchmode -projectPath . -executeMethod Stairs.EditorTools.StairsAsse
 | `Assets/Editor` | `StairsAssetImporter` (에셋 가져오기, 씬 만들기, 명령줄 빌드) |
 | `Assets/Tests/EditMode` | `ParityTests` 14개: 난수·계단 장애물 칸·경쟁 사원, 그리고 `WebRuns.txt`(웹 판 10판과 장면 4개의 사건 기록)를 C# Core와 한 줄씩 비교 |
 | `WebReference/` | 비교 기준인 웹 판 사본 (`index.html`, `game.js`, `assets/`). Unity는 가져오지 않으며 고치지 않습니다 |
-| `Tools~/` | 웹과 맞대어 보는 도구: `web_expect.js`(웹 판 사건 기록 → `WebRuns.txt`), `rival_expect.js`(경쟁 사원 테스트 기대값), `web_shots.py`(웹 화면 스크린샷), `make_sounds.py`(새 장애물 소리) |
+| `Tools~/` | 웹과 맞대어 보는 도구: `web_expect.js`(웹 판 사건 기록 → `WebRuns.txt`), `rival_expect.js`(경쟁 사원 테스트 기대값), `web_shots.py`(웹 화면 스크린샷), `make_sounds.py`(새 장애물 소리), `qa/`(움직임·상호작용 `qa_physics.js`, 스프라이트 `sprite_qa.py`, 애니메이션 `anim_qa.py`) |
 | `docs/UNITY_PORT.md` | 이식 기록 (무엇을 어떻게 옮겼고 무엇을 확인했는지) |
 
 ## 명령줄로 확인하기
@@ -52,6 +52,7 @@ Unity.exe -batchmode -projectPath . -executeMethod Stairs.EditorTools.StairsAsse
 Builds/Playtest/Stairs.exe -seed 1 -screen-fullscreen 0 -screen-width 1280 -screen-height 720 -stairsPlaytest shots/unity
 python Tools~/web_shots.py WebReference shots/web
 node Tools~/web_expect.js WebReference/game.js Assets/Tests/EditMode/WebRuns.txt   # 웹 판이 바뀌면 기록을 다시 만든다
+node Tools~/qa/qa_physics.js WebReference/game.js; python Tools~/qa/sprite_qa.py WebReference/assets; python Tools~/qa/anim_qa.py WebReference/assets
 ```
 
 `-stairsPlaytest`는 타이틀부터 결과·연습·무한까지 정해진 순서로 돌며 화면마다 스크린샷을 찍고, `web_shots.py`는 웹 판을 같은 순서·같은 seed로 찍습니다.

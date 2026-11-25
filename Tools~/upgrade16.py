@@ -64,6 +64,8 @@ def cell16(f, per_color=True, amp=1.0):
     empty = ~op; dn, rt = nb(fill, 1, 0), nb(fill, 0, 1)
     sel = dark & (nb(empty, -1, 0) | nb(empty, 0, -1)) & (dn | rt)
     nbcol = np.where(dn[..., None], np.roll(rgb, -1, axis=0), np.roll(rgb, -1, axis=1))
+    keep = nbcol.mean(-1) > 200                         # 아주 밝은 것(종이·종이비행기)은 검은 외곽선을 그대로 두어 또렷하게
+    sel = sel & ~keep
     rgb[sel] = np.maximum(nbcol[sel] * 0.42, rgb[sel])
     # 머리카락 윤기: 맨 윗줄 왼쪽 세 칸만
     du, dd, dl, dr = nb(dark, -1, 0), nb(dark, 1, 0), nb(dark, 0, -1), nb(dark, 0, 1)

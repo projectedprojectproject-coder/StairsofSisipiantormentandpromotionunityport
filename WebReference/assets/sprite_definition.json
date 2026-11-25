@@ -536,7 +536,9 @@
       "frame_h": 32,
       "variants": {
         "chair": 0,
-        "envelope": 1
+        "envelope": 1,
+        "stapler": 2,
+        "plane": 3
       },
       "animations": {
         "roll": {
@@ -556,6 +558,24 @@
             3
           ],
           "fps": 10
+        },
+        "snap": {
+          "frames": [
+            0,
+            1,
+            2,
+            3
+          ],
+          "fps": 10
+        },
+        "flap": {
+          "frames": [
+            0,
+            1,
+            2,
+            3
+          ],
+          "fps": 14
         }
       }
     }

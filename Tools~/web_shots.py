@@ -71,7 +71,7 @@ with sync_playwright() as pw:
     # 3) 연습 (seed 3), 무한 (seed 4), 봇
     page = ctx.new_page()
     page.goto(url + "?seed=3&bot=1&mute=1")
-    page.wait_for_timeout(800); key(page, "Enter"); page.wait_for_timeout(300); key(page, "ArrowLeft"); key(page, "Enter")
+    page.wait_for_timeout(800); key(page, "Enter"); page.wait_for_timeout(300); key(page, "ArrowLeft", 2); key(page, "Enter")   # 로비: 업무 시작 → (왼쪽) 설정 톱니바퀴 → 연습 모드
     page.wait_for_timeout(3000); shot(page, "15_practice")
     page.close()
     page = ctx.new_page()

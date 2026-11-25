@@ -47,9 +47,9 @@ const CONFIG = {
   weightEnvelope: 0.6,     // 기획서 미정
   envelopeCount: 3,        // 결정: 세 장
   envelopeGap: 0.4,        // 기획서 미정: 편지 사이 박자(초). 판정 0.2초 + 재입력 대기 0.15초보다 길어야 세 번 누를 수 있다
-  chairFromFloor: 30,      // 결정(2026-11-25): 30층부터 굴러오는 의자. 위 계단에서 굴러 내려온다
+  chairFromFloor: 30,      // 결정(2026-11-25): 30층부터 튀어 내려오는 의자. 위 계단에서 두 칸씩 튀며 내려온다
   weightChair: 0.6,        // 기획서 미정
-  chairOverShare: 0.35,    // 기획서 미정: 이만큼은 마지막에 크게 튀어 머리 위로 넘어가 계속 굴러 떨어진다 (막을 필요 없음, 막아도 아무 일 없음)
+  chairHop: 0.34,          // 결정(2026-11-25): 의자가 두 칸을 한 번에 튀는 시간(초). 생길 때 플레이어 칸 6칸 위에서 출발해 세 번째에 그 칸에 내려앉는다
   reverseFromFloor: 35,    // 기획서 미정: 35층부터 거꾸로 칸. 그 칸에서는 반대쪽 화살표를 눌러야 오른다
   reverseShare: 0.10,      // 기획서 미정: 거꾸로 칸 비율 (층이 바뀌는 칸, 다른 계단 장애물 칸은 빼고)
   escalatorFromFloor: 20,  // 결정: 20층부터 내려가는 에스컬레이터 칸. 가만히 서 있으면 한 칸씩 밀려 내려간다
@@ -137,7 +137,7 @@ const TIPS = {
     stapler: "스테이플러는 막으면 반대쪽에서 돌아와요. 반대쪽 키로 한 번 더 막으세요",
     airplane: "종이비행기 편대는 날아오는 쪽 키를 꾹 누르고 있으세요",
     envelope: "편지 3장은 같은 쪽에서 박자에 맞춰 와요. 한 장씩 세 번 막으세요",
-    chair: "굴러오는 의자는 막고, 크게 튀어 오르는 의자는 머리 위로 넘어가니 그냥 두세요",
+    chair: "튀어 내려오는 의자는 내 칸에 내려앉을 때만 맞아요. 가만히 서서 오는 쪽 키로 막거나, 다른 칸으로 피하세요",
     reverse: "보라색 거꾸로 칸에서는 반대쪽 화살표를 눌러야 올라가요",
     vanish: "사라지는 칸은 5초 있다가 1초 없어져요. 깜박이면 기다렸다가 건너세요",
     gaze: "빨간 레이저(상사의 눈)가 내 위를 지나갈 때는 오르지 마세요. 가만히 있으면 안전해요",
@@ -430,6 +430,7 @@ let result = null;
 let resultLock = 0;
 let settingsOpen = false;
 let helpOpen = false; // 조작법 화면
+let QA_HOOK = null;   // QA: 그리기 자리를 알린다 (평소에는 null. tools/qa_physics.js가 쓴다)
 let demo = null;      // 장애물 보기 (조작법·결과 화면에서 연다)
 let runCount = 0;
 let toastText = '', toastUntil = 0;
@@ -688,8 +689,13 @@ function spawnAttack() {
               hp: type === 'sticky' ? 1 + Math.floor(r.rng() * CONFIG.stickyMax) : 1,
               debris: r.decor() < 0.5 ? 'document' : 'clipboard',   // 서류가방에서 쏟아질 것
               returned: false, k: 0,                                // 스테이플러: 돌아왔는지, 종이비행기·편지: 지나간 수
-              over: type === 'chair' && r.rng() < CONFIG.chairOverShare, passed: false, hopped: false, cueK: 0 };   // 의자: 머리 위로 넘어가는지
-  if (type === 'chair') { p.side = p.from = dirAt(r.steps); }   // 의자는 위 계단(오를 쪽)에서 굴러 내려온다
+              passed: false, hopped: false, cueK: 0, fallT: null,
+              ax: stairX(r.steps), ay: -r.steps * CONFIG.stepH, s0: r.steps };   // 정해진 길: 생길 때 플레이어가 서 있던 자리(world)로 날아간다 (따라가지 않는다)   // 의자: 머리 위로 넘어가는지
+  if (type === 'chair') {   // 의자: 위 계단(오를 쪽)에서 생길 때 플레이어 칸의 계단 줄을 따라 내려온다 (정해진 길)
+    p.side = p.from = dirAt(r.steps); p.spawnT = p.impactT - 3 * CONFIG.chairHop;
+    p.up = 0; while (p.up < 6 && dirAt(r.steps + p.up) === p.side) p.up++;                          // 위로 같은 줄에 이어진 칸 수
+    p.down = 0; while (p.down < 8 && r.steps - 1 - p.down >= 0 && dirAt(r.steps - 1 - p.down) === p.side) p.down++;   // 아래로
+  }
   if (rival) Object.assign(p, { locked: false, phase: 'walk', wx: r.camX + side * (W / 2 + 16), ri: 0,
                                 floorStep: Math.round(r.steps / CONFIG.stairsPerFloor) * CONFIG.stairsPerFloor });   // 가장 가까운 층 바닥(위 또는 아래)
   r.projs.push(p);
@@ -782,8 +788,9 @@ function botTick(dt) {
   r.held = [false, false];
   r.projs.forEach(function (p) { if (p.type === 'airplane' && !p.done && r.time >= p.impactT - CONFIG.botParryLead) r.held[p.side < 0 ? 0 : 1] = true; });
   r.projs.forEach(function (p) {
-    if (p.done || p.type === 'airplane' || (p.type === 'chair' && p.over)) return;   // 넘어가는 의자는 막지 않는다
-    const tti = (p.type === 'envelope' ? p.impactT + p.k * CONFIG.envelopeGap : p.impactT) - r.time;
+    if (p.done || p.type === 'airplane') return;
+    const ch = p.type === 'chair' ? chairHitT(r, p) : null; if (p.type === 'chair' && !ch) return;   // 의자: 내 칸에 내려앉을 때만 막는다
+    const tti = (ch ? ch.t : p.type === 'envelope' ? p.impactT + p.k * CONFIG.envelopeGap : p.impactT) - r.time;
     const s = p.side < 0 ? 0 : 1;
     if (p.type !== 'coffee' && p.locked !== false && tti > 0 && tti <= CONFIG.botParryLead && r.time >= r.parryCd[s]) keyParry(p.side);
   });
@@ -844,7 +851,7 @@ function updatePlay(dt) {
   const gz = gazeState(r);                     // 상사의 눈: 예고·훑기가 시작될 때 소리
   if (gz && !gz.rest) {
     const key = gz.cycle * 2 + (gz.sweep ? 1 : 0);
-    if (key !== r.gazeKey) { r.gazeKey = key; if (gz.warn) { sfx('sfx_gaze_warn'); log('gaze warn'); } else { sfx('sfx_gaze_laser'); log('gaze sweep'); } }
+    if (key !== r.gazeKey) { r.gazeKey = key; if (gz.warn) { sfx('sfx_gaze_warn'); log('gaze warn'); } else { sfx('sfx_gaze_laser'); log('gaze sweep'); r.shake = Math.max(r.shake, 0.18); } }
   }
   if (r.floor >= CONFIG.flashFromFloor || r.mode !== 'normal') {      // 카메라 플래시 (무한·연습은 처음부터): 막을 수 없지만 피해도 없다
     r.nextFlash -= dt;
@@ -865,11 +872,20 @@ function updatePlay(dt) {
     if (p.type === 'monitor' && !p.shattered && r.time >= p.spawnT) { p.shattered = true; sfx('sfx_monitor_shatter'); }   // 유리 깨짐 (도착 1.0초 전)
     // 패링 타이밍 소리: 소리의 박이 패링하기 가장 좋은 순간(도착 0.1초 전)에 온다. 경쟁 사원은 막을 쪽이 정해진 뒤에만
     const cue = CONFIG.cues[p.type];
-    if (cue && !p.cued && !p.done && p.locked !== false && !(p.type === 'chair' && p.over) && r.time >= p.impactT - cue[1]) { p.cued = true; sfx(cue[0]); log('cue ' + p.type); }
-    if (p.type === 'chair' && p.over) {        // 크게 튀는 의자: 머리 위로 넘어가 계속 굴러 떨어진다 (해 없음)
-      if (!p.hopped && r.time >= p.impactT - 0.35) { p.hopped = true; sfx('sfx_chair_hop'); }
-      if (!p.passed && r.time >= p.impactT) { p.passed = true; log('chair over'); }
-      if (r.time >= p.impactT + 0.8) p.done = true;
+    if (cue && p.type !== 'chair' && !p.cued && !p.done && p.locked !== false && r.time >= p.impactT - cue[1]) { p.cued = true; sfx(cue[0]); log('cue ' + p.type); }
+    if (p.type === 'chair') {                  // 튀어 내려오는 의자: 두 칸씩 튀며 내려오고, 플레이어 몸에 닿는 순간 맞는다 (그 순간 오는 쪽 막기가 켜져 있으면 막힌다)
+      if (p.done) continue;
+      if (p.fallT !== null) { if (r.time >= p.fallT + 0.6) p.done = true; continue; }   // 계단 밖으로 떨어지는 중
+      const c = chairPos(p, r.time);
+      if (c.phase === 'fall') { p.fallT = c.tPeak; log('chair off'); continue; }       // 앞에 칸이 없다
+      const nh = chairHitT(r, p);
+      if (nh && p.cueK !== nh.k && r.time >= nh.t - CONFIG.cues.chair[1]) { p.cueK = nh.k; sfx('sfx_cue_chair'); log('cue chair'); }
+      if (c.phase !== 'pre' && chairTouches(r, c)) {                                    // 몸에 닿았다
+        const cs = p.side < 0 ? 0 : 1; p.done = true;
+        if (r.parryStart[cs] <= r.time && r.time <= r.parryEnd[cs]) gainParry(r, p, r.time);
+        else { r.lastKind = 'chair'; loseHeart('attack'); }
+        if (r.ended) break;
+      }
       continue;
     }
     if (p.type === 'envelope') {               // 편지 3연발: 한 장씩 도착할 때 그 쪽 막기가 켜져 있어야 한다
@@ -908,11 +924,11 @@ function updatePlay(dt) {
     if (parried) {
       gainParry(r, p);
       if (p.type === 'stapler' && !p.returned) {   // 스테이플러: 부메랑처럼 반대쪽에서 돌아온다
-        p.returned = true; p.side = -p.side; p.from = p.side; p.done = false; p.cued = false; p.spawnT = r.time; p.impactT = r.time + CONFIG.staplerReturn;
+        p.returned = true; p.side = -p.side; p.from = p.side; p.done = false; p.cued = false; p.spawnT = r.time; p.impactT = r.time + CONFIG.staplerReturn; p.ax = stairX(r.steps); p.ay = -r.steps * CONFIG.stepH;
         log('stapler return');
       }
       if (p.type === 'sticky' && p.hp > 1) {   // 포스트잇: 튕겨 나갔다가 같은 쪽으로 돌아온다. 남은 횟수(색)가 하나 준다
-        p.hp--; p.done = false; p.bounce = true; p.cued = false; p.spawnT = r.time; p.impactT = r.time + CONFIG.warnTime;
+        p.hp--; p.done = false; p.bounce = true; p.cued = false; p.spawnT = r.time; p.impactT = r.time + CONFIG.warnTime; p.ax = stairX(r.steps); p.ay = -r.steps * CONFIG.stepH;
         log('sticky bounce hp=' + p.hp);
       }
     } else {
@@ -923,6 +939,36 @@ function updatePlay(dt) {
   r.projs = r.projs.filter(function (p) { return !p.done; });
 }
 // 막기에 성공했을 때 (점수·콤보·일수·불꽃·글자). 종이비행기 편대는 다 막은 뒤 한 번
+// 의자가 다음에 플레이어 칸에 내려앉는 때 {k, t} (내려앉지 않으면 null). 의자는 생길 때 칸(s0)에서 6, 4, 2, 0, -2 ... 칸에 내려앉는다
+// 의자 자리(world, 의자 가운데). 생길 때 칸(s0)의 계단 줄을 따라: 첫 실제 칸(j = 6, 4, 2, 0 중 up 이하로 가장 높은 칸)까지는 층참에서 떨어져 들어오고,
+// 두 칸씩 30px 아치로 튀며(칸 윗면에 내려앉는다), 앞에 칸이 없는 튀기는 꼭대기부터 그대로 떨어진다. phase: pre·drop·hop·fall
+const CHAIR_ARC = 30;
+function chairPos(p, T) {
+  const s = p.side, n0 = p.s0, hop = CONFIG.chairHop, dx = Math.abs(stairX(n0 + 1) - stairX(n0)) || CONFIG.stepW;
+  const L = function (j) { return [stairX(n0) + s * j * dx, -(n0 + j) * CONFIG.stepH - 7]; };
+  const kF = Math.max(0, Math.ceil((6 - p.up) / 2)), jF = 6 - 2 * kF, kOff = Math.floor((6 + p.down) / 2) + 1, tPeak = p.spawnT + (kOff - 0.5) * hop;
+  const t = T - p.spawnT;
+  if (T >= tPeak) { const a = L(8 - 2 * kOff), b = L(6 - 2 * kOff), e = T - tPeak; return { x: (a[0] + b[0]) / 2 + (b[0] - a[0]) / hop * e, y: (a[1] + b[1]) / 2 - CHAIR_ARC + 350 * e * e, phase: 'fall', e: e, tPeak: tPeak }; }
+  if (t < 0) { const q = L(6); return { x: q[0], y: q[1] - (p.up < 6 ? 40 : 0), phase: 'pre', tPeak: tPeak }; }
+  if (t < kF * hop) { const u = t / (kF * hop), a = L(6), b = L(jF); return { x: lerp(a[0], b[0], u), y: lerp(a[1] - 40, b[1], u * u), phase: 'drop', u: u, tPeak: tPeak }; }
+  const f = t / hop, k = Math.floor(f), u = f - k, a = L(6 - 2 * k), b = L(4 - 2 * k);
+  return { x: lerp(a[0], b[0], u), y: lerp(a[1], b[1], u) - Math.sin(u * Math.PI) * CHAIR_ARC, phase: 'hop', u: u, tPeak: tPeak };
+}
+// 의자 상자(가운데 ±7, ±8)가 플레이어 몸(발, 가로 ±6, 높이 26)에 닿는가. 플레이어 자리는 보이는 자리(pvx, pvy: 칸 사이를 미끄러지는 중이면 그 자리)
+function chairTouches(r, c) {
+  const fx = r.pvx, fy = r.pvy;
+  return Math.abs(c.x - fx) < 13 && c.y + 8 > fy - 26 && c.y - 8 < fy;
+}
+// 의자가 다음에 플레이어 몸에 닿을 때 {k, t} (1.5초 안에, 플레이어가 지금 자리에 그대로 있다면). 없으면 null
+function chairHitT(r, p) {
+  if (p.fallT !== null) return null;
+  for (let i = 1; i <= 90; i++) {
+    const T = r.time + i / 60, c = chairPos(p, T);
+    if (c.phase === 'fall') return null;
+    if (c.phase !== 'pre' && chairTouches(r, c)) return { k: Math.round(T * 60), t: T };
+  }
+  return null;
+}
 function gainParry(r, p, th) {   // th: 맞는 순간 (편지는 장마다 다르다)
   r.parryHitT = r.time; r.parryHitSide = p.side;   // 막기 성공 프레임 (그리기용)
   r.parries++; r.combo++;
@@ -938,7 +984,7 @@ function gainParry(r, p, th) {   // th: 맞는 순간 (편지는 장마다 다�
     const a = r.decor() * Math.PI * 2;
     r.sparks.push({ x: px, y: PLAYER_Y - 14, vx: Math.cos(a) * 50, vy: Math.sin(a) * 50 - 20, t: 0, color: k % 2 ? PAL.text : PAL.green });
   }
-  addText('+' + CONFIG.parryDays, px, PLAYER_Y - 30, PAL.green);
+  addText('+' + CONFIG.parryDays, px, PLAYER_Y - 42, PAL.green);
   log('parry ok combo=' + r.combo + ' x' + r.mult);
 }
 function finishRun() {
@@ -982,6 +1028,11 @@ function txt(s, x, y, o) {
   ctx.fillStyle = o.color || PAL.text;
   ctx.fillText(s, x, y);
 }
+function txtO(s, x, y, o) {   // 테두리 글자: 어떤 배경에서도 읽히게 (짙은 1px 테두리)
+  const d = Object.assign({}, o, { color: '#0E0F12', shadow: false });
+  txt(s, x - 1, y, d); txt(s, x + 1, y, d); txt(s, x, y - 1, d); txt(s, x, y + 1, d);
+  txt(s, x, y, Object.assign({}, o, { shadow: false }));
+}
 function btn(id, label, x, y, w, h, fn, size) { return { id: id, label: label, x: x, y: y, w: w, h: h, fn: fn, size: size }; }
 
 function openSettings() { settingsOpen = true; focus = 0; }
@@ -1002,7 +1053,7 @@ function getButtons() {
   if (helpOpen) return [btn('demo', '장애물 보기', 60, 150, 96, 14, function () { openDemo('climb'); }), btn('close', '닫기', 164, 150, 96, 14, closeHelp)];
   if (settingsOpen) {
     return [
-      btn('snd', Snd.muted ? '꺼짐' : '켜짐', 170, 34, 88, 14, function () { Snd.muted = !Snd.muted; syncAudio(true); }),
+      Object.assign(btn('snd', Snd.muted ? '꺼짐' : '켜짐', 170, 34, 88, 14, function () { Snd.muted = !Snd.muted; syncAudio(true); }), { off: Snd.muted }),
       btn('vdn', '-', 170, 52, 24, 14, function () { Snd.vol = clamp(Math.round((Snd.vol - 0.1) * 10) / 10, 0, 1); syncAudio(true); }),
       btn('vup', '+', 234, 52, 24, 14, function () { Snd.vol = clamp(Math.round((Snd.vol + 0.1) * 10) / 10, 0, 1); syncAudio(true); }),
       btn('fs', '전체화면', 170, 70, 88, 14, function () {
@@ -1140,10 +1191,10 @@ function drawButtons() {
       return;
     }
     const red = b.tone === 'red';
-    rect(b.x, b.y, b.w, b.h, red ? (f ? '#B84545' : PAL.red) : (f ? PAL.green : PAL.gray));
+    rect(b.x, b.y, b.w, b.h, red ? (f ? '#B84545' : PAL.red) : b.off ? '#4A4E55' : (f ? PAL.green : PAL.gray));   // 꺼짐은 고른 때도 회색 (테두리로 고른 것을 보인다)
     frameRect(b.x, b.y, b.w, b.h, f ? PAL.text : PAL.bg);
     if (red) frameRect(b.x + 1, b.y + 1, b.w - 2, b.h - 2, '#6E2626');
-    txt(b.label, b.x + b.w / 2, b.y + b.h / 2 + 0.5, { align: 'center', base: 'middle', size: b.size || 8, color: f && !red ? PAL.bg : PAL.text, shadow: !f || red });
+    txt(b.label, b.x + b.w / 2, b.y + b.h / 2 + 0.5, { align: 'center', base: 'middle', size: b.size || 8, color: b.off ? '#E8E6DF' : f && !red ? PAL.bg : PAL.text, shadow: !f || red });
   });
 }
 function drawHeart(x, y, full) {
@@ -1307,8 +1358,9 @@ function drawPlayWorld() {
         const t = (yy - sy0) / Math.max(1, top - sy0), w = lerp(14, W * 2.4, t);
         rect(sx0 - w / 2, yy, w, 3, '#C0302E', 0.2); rect(sx0 - w * 0.12, yy, w * 0.24, 3, '#FF5A4E', 0.3);
       }
-      rect(0, top, W, CONFIG.gazeWidth, '#C0302E', 0.38);
-      rect(0, gz.y - 3, W, 6, '#FF5A4E', 0.6); rect(0, gz.y - 1, W, 2, '#FFD0C8', 0.45);
+      rect(0, top - 6, W, 6, '#C0302E', 0.14); rect(0, top + CONFIG.gazeWidth, W, 6, '#C0302E', 0.14);   // 바깥 번짐
+      rect(0, top, W, CONFIG.gazeWidth, '#C0302E', 0.36);
+      rect(0, gz.y - 6, W, 12, '#FF5A4E', 0.45); rect(0, gz.y - 3, W, 6, '#FFB0A0', 0.6); rect(0, gz.y - 1, W, 2, '#FFFFFF', 0.9);   // 뜨거운 하얀 심
       drawGlint(sx0, sy0, 10, 1);
     }
   }
@@ -1345,6 +1397,7 @@ function drawPlayWorld() {
     }
   }
   // 계단 디딤판
+  const floorLabels = [];
   for (let i = r.steps + 14; i >= Math.max(0, r.steps - 6); i--) {
     const sx = 160 + (stairX(i) - r.camX);
     const sy = PLAYER_Y + (-i * CONFIG.stepH - r.camY);
@@ -1358,6 +1411,7 @@ function drawPlayWorld() {
     // 사라지는 칸: 없어진 동안은 윤곽만, 없어지기 1초 전부터 깜박인다. 윗면의 하늘색 선이 표시
     const van = isVanish(i), vst = vanishState(r);
     if (van && vst.gone) {
+      rect(sx - CONFIG.stepW / 2, sy, CONFIG.stepW, tileH, '#9FE0FF', 0.12);   // 없어진 칸: 옅게 채운 유령
       rect(sx - CONFIG.stepW / 2, sy, CONFIG.stepW, 1, '#9FE0FF', 0.5); rect(sx - CONFIG.stepW / 2, sy + tileH - 1, CONFIG.stepW, 1, '#9FE0FF', 0.25);
       continue;
     }
@@ -1397,8 +1451,9 @@ function drawPlayWorld() {
       rect(sx - tileW / 2, sy, tileW, tileH, landing ? PAL.red : PAL.gray);
       rect(sx - tileW / 2, sy, tileW, 2, landing ? PAL.text : PAL.green);
     }
-    if (landing && i > 0) txt((i / spf + 1) + 'F', sx, sy + 8, { size: 6, align: 'center', color: PAL.text });
+    if (landing && i > 0) floorLabels.push([(i / spf + 1) + 'F', sx, sy + 8]);
   }
+  floorLabels.forEach(function (l) { rect(l[1] - 8, l[2] - 1, 16, 9, '#141518', 0.55); txt(l[0], l[1], l[2], { size: 6, align: 'center', color: PAL.text }); });   // 층 표시는 칸 위에, 짙은 바탕
   // 난간: 칸마다 기둥, 이웃 칸 기둥끼리 손잡이로 잇는다 (아트 픽셀 단위로 그려 계단처럼 각지게)
   for (let i = Math.max(0, r.steps - 6); i < r.steps + 14; i++) {
     const ax = 160 + (stairX(i) - r.camX), ay = PLAYER_Y + (-i * CONFIG.stepH - r.camY);
@@ -1434,6 +1489,8 @@ function drawPlayWorld() {
       for (let j = 0; j < 3; j++) rect(px - mdir * (5 + k * (6 + j * 4)), PLAYER_Y + 1 - k * (2 + j * 2), 2, 2, '#C9CCD1', 0.6 * (1 - k));
     }
   }
+  for (let dy = -30; dy <= 0; dy += 2) { const k = (dy + 15) / 17, w = Math.sqrt(Math.max(0, 1 - k * k)) * 13; rect(px - w, PLAYER_Y + dy, w * 2, 2, '#F2E6D0', 0.06); }   // 플레이어 뒤 은은한 빛
+  if (QA_HOOK) QA_HOOK('player', null, px, PLAYER_Y + 2 + pdy);
   drawSprite('player', CONFIG.rankNames[r.rankIdx], anim, r.time - r.animStart, px, PLAYER_Y + 2 + pdy, po);
   // 투척물 + 예고
   // 월드 좌표 -> 화면 좌표 (경쟁 사원 발 위치)
@@ -1477,6 +1534,7 @@ function drawPlayWorld() {
       } else if (anim === 'walk' && p.phase === 'walk') {                       // 층 바닥을 달려올 때: 들썩이며 앞으로 기운다
         y -= Math.abs(Math.sin(at * 16)) * 2; ro.rot = (x > px ? -1 : 1) * 0.1; at *= 1.6;
       }
+      if (QA_HOOK) QA_HOOK('rival', p, x, y);
       drawSprite('rival', 'default', anim, at, x, y, ro);
       if (p.waiting && showMarks()) txt('…', x + 10, y - 36, { align: 'center', base: 'middle', size: 9, bold: true, color: '#E3B65C' });   // 계단 장애물 앞에서 기다리는 중
       if (r.time >= p.spawnT && showMarks()) {
@@ -1485,36 +1543,38 @@ function drawPlayWorld() {
       }
       return;
     }
-    if (p.type === 'airplane') { drawAirplanes(p, px); return; }
-    if (p.type === 'envelope') { drawEnvelopes(p, px); return; }
+    const ax = px, ay = PLAYER_Y;   // 투척물은 플레이어를 향한다 (의자만 생길 때의 계단 줄을 따라 정해진 길로)
+    if (p.type === 'airplane') { drawAirplanes(p, ax, ay); return; }
+    if (p.type === 'envelope') { drawEnvelopes(p, ax, ay); return; }
     if (p.type === 'chair') { drawRollingChair(p, px); return; }
     if (r.time < p.spawnT) return;                           // 모니터: 아직 형광등이 깜박이는 중
     const prog = clamp((r.time - p.spawnT) / Math.max(0.01, p.impactT - p.spawnT), 0, 1), tt = r.time - p.spawnT;   // 날아오는 시간(돌아오는 스테이플러는 0.9초)
-    const tx = px + p.side * 8, ty = PLAYER_Y - 16;          // 맞는 자리
+    const tx = ax + p.side * 8, ty = ay - 16;                // 맞는 자리 (정해진 자리)
     let x, y;
     if (p.bounce) {                                          // 포스트잇: 튕겨 나갔다가 같은 쪽으로 돌아온다
       x = tx + p.side * 64 * Math.sin(prog * Math.PI); y = ty - 26 * Math.sin(prog * Math.PI);
     } else if (p.type === 'suitcase') {                      // 아래에서 솟아 날아오다가 도중에 터진다
-      const x0 = px + p.side * 80, y0 = H + 14, bx = px + p.side * 40, by = PLAYER_Y - 34;
+      const x0 = ax + p.side * 80, y0 = H + 14, bx = ax + p.side * 40, by = ay - 34;
       const u = Math.min(1, prog / (1 - CONFIG.suitcaseBurst / CONFIG.warnTime));
       x = lerp(x0, bx, u); y = lerp(y0, by, u) - Math.sin(Math.pow(u, 0.7) * Math.PI) * 56;
     } else if (p.type === 'phone') {                         // 화면 아래에서 솟아 꼭대기에서 잠깐 멈칫한 뒤 중력처럼 빨라지며 떨어진다
-      const x0 = px + p.side * 80, y0 = H + 14;
+      const x0 = ax + p.side * 80, y0 = H + 14;
       x = lerp(x0, tx, prog); y = lerp(y0, ty, prog) - Math.sin(Math.pow(prog, 0.7) * Math.PI) * 84;
     } else if (p.type === 'monitor') {                       // 위층 창이 깨지며 70도 사선으로 떨어진다 (처음엔 느리고 중력처럼 빨라짐)
-      const y0 = -20, x0 = tx + p.side * (ty - y0) / Math.tan(CONFIG.monitorAngle * Math.PI / 180), e = prog * (0.25 + 0.75 * prog);
+      const y0 = ty - 96, x0 = tx + p.side * (ty - y0) / Math.tan(CONFIG.monitorAngle * Math.PI / 180), e = prog * (0.25 + 0.75 * prog);
       x = lerp(x0, tx, e); y = lerp(y0, ty, e);
     } else if (p.type === 'paper') {                         // 던진 쪽에서 머리 위로 넘어가, 반대쪽에서 돌아와 맞는다
-      const x0 = p.from < 0 ? -16 : W + 16, mx = px + p.side * 36, my = PLAYER_Y - 36;
+      const x0 = p.from < 0 ? -16 : W + 16, mx = ax + p.side * 36, my = ay - 36;
       if (prog < 0.65) { const u = prog / 0.65; x = lerp(x0, mx, u); y = lerp(ty, my, u) - Math.sin(u * Math.PI) * 14; }
       else { const v = (prog - 0.65) / 0.35; x = lerp(mx, tx, v); y = lerp(my, ty, v); }
     } else if (p.type === 'stapler' && p.returned) {         // 막힌 스테이플러: 막은 자리에서 뒤로 튕겨 나갔다가 머리 위로 휘어 반대쪽에서 맞는다
-      const b = bezier3(prog, [px - p.side * 8, ty], [px - p.side * 96, ty - 40], [px + p.side * 84, ty - 76], [tx, ty]);
+      const b = bezier3(prog, [ax - p.side * 8, ty], [ax - p.side * 96, ty - 40], [ax + p.side * 84, ty - 76], [tx, ty]);
       x = b[0]; y = b[1];
     } else {                                                 // 결재판: 옆에서 날아온다
       const x0 = p.side < 0 ? -16 : W + 16;
       x = lerp(x0, tx, prog); y = ty - Math.sin(prog * Math.PI) * 6;
     }
+    if (QA_HOOK) QA_HOOK('proj', p, x, y);
     // 회전: 모니터·전화기는 불규칙하게 빙글빙글, 결재판은 납작한 판이 수평으로 도는 것처럼 폭이 줄었다 늘었다 한다
     const so = { anchor: 'c', fw: 12, fh: 9, color: PAL.text, flip: p.side > 0 };
     let at = r.time - p.spawnT;
@@ -1533,11 +1593,11 @@ function drawPlayWorld() {
     if (p.type === 'monitor' || p.type === 'phone' || p.type === 'suitcase' || p.type === 'stapler') { so.rot = p.ph + p.spin * tt + 0.8 * Math.sin(p.wob * tt * 3); at = 0; }
     if (p.type === 'suitcase') so.scale = 1.35;             // 서류가방은 크게 (서류·결재판과 헷갈리지 않게)
     else if (p.type === 'clipboard' || p.type === 'coffee' || p.type === 'sticky') { const c = Math.cos(tt * 13 + p.ph); so.sx = (c < 0 ? -1 : 1) * Math.max(0.14, Math.abs(c)); so.sy = 0.82; so.rot = 0.12 * p.side; at = 0; }
-    if (p.type === 'stapler') drawStapler(x, y, so.rot || 0);                                // 스테이플러 (그림 없이 그린다)
+    if (p.type === 'stapler') drawStapler(x, y, so.rot || 0, tt, p.side > 0);                                // 스테이플러 (그림 없이 그린다)
     else if (p.type === 'sticky') drawSprite('sticky', STICKY_COLORS[p.hp], 'fly', at, x, y, so);   // 색 = 남은 횟수
     else drawSprite('projectiles', 'default', p.type === 'paper' ? 'document' : p.type, at, x, y, so);
     const wx = clamp(x, 8, W - 8), wy = y - 16;
-    if (p.type === 'coffee') { if (showMarks()) txt('×', wx, wy, { align: 'center', base: 'middle', size: 11, bold: true, color: PAL.red }); return; }   // 막지 말라는 표시
+    if (p.type === 'coffee') { if (showMarks()) txtO('×', wx, wy, { align: 'center', base: 'middle', size: 13, bold: true, color: '#FF5A4E' }); return; }   // 막지 말라는 표시
     if (!showMarks()) return;                                // 10층 위: 위협 위 표시 없음
     const wk = drawSprite('warning', 'default', 'blink', r.time - p.spawnT, wx, wy, { anchor: 'c', fw: 8, fh: 12, nofb: true });
     if (!wk && Math.floor(time * 8) % 2 === 0) {
@@ -1548,9 +1608,9 @@ function drawPlayWorld() {
   });
   // 효과
   r.sparks.forEach(function (s) { rect(s.x, s.y, 2, 2, s.color, 1 - s.t / 0.4); });
-  r.texts.forEach(function (t) {
-    ctx.globalAlpha = clamp(1 - t.t / 0.8, 0, 1);
-    txt(t.s, t.x, t.y, { align: 'center', size: 9, bold: true, color: t.color });
+  r.texts.forEach(function (t) {   // 떠오르는 글자: 0.3초 동안 또렷하게, 밝은 색 + 테두리
+    ctx.globalAlpha = t.t < 0.3 ? 1 : clamp(1 - (t.t - 0.3) / 0.5, 0, 1);
+    txtO(t.s, t.x, t.y, { align: 'center', size: 9, bold: true, color: t.color === PAL.green ? '#C8F06A' : t.color === PAL.red ? '#FF6A5E' : t.color });
     ctx.globalAlpha = 1;
   });
   // 모니터 예고: 형광등이 불규칙하게 깜박인다 (화면이 어두워졌다 밝아짐, 떨어질 쪽 위가 더 깜박임)
@@ -1561,7 +1621,7 @@ function drawPlayWorld() {
     rect(px + p.side * 52 - 30, 0, 60, 3, PAL.text, Math.max(0, 0.22 - f * 0.35));
   });
   // 상사의 눈 (앞): 레이저가 플레이어 위로도 보이게 옅게 한 번 더, 예고 숫자
-  if (gz && gz.sweep) { rect(0, gz.y - CONFIG.gazeWidth / 2, W, CONFIG.gazeWidth, '#C0302E', 0.14); txt('멈추기!', 160, 40, { align: 'center', base: 'middle', size: 8, bold: true, color: '#FF5A4E' }); }
+  if (gz && gz.sweep) { rect(0, gz.y - CONFIG.gazeWidth / 2, W, CONFIG.gazeWidth, '#C0302E', 0.14); txtO('멈추기!', 160, 40, { align: 'center', base: 'middle', size: 8, bold: true, color: '#FF8A7A' }); }
   if (r.flash > 0) rect(0, 0, W, H, PAL.red, clamp(r.flash / 0.35, 0, 1) * 0.35);
   // 카메라 플래시: 화면이 하얗게 번쩍이고, 터진 자리에 빛줄기가 남는다 (막을 수 없고 피해도 없다)
   if (r.camFlash) {
@@ -1588,7 +1648,8 @@ function bezier3(u, a, b, c, d) {   // 3차 베지어 곡선 위의 점
   const v = 1 - u, w0 = v * v * v, w1 = 3 * v * v * u, w2 = 3 * v * u * u, w3 = u * u * u;
   return [w0 * a[0] + w1 * b[0] + w2 * c[0] + w3 * d[0], w0 * a[1] + w1 * b[1] + w2 * c[1] + w3 * d[1]];
 }
-function drawStapler(x, y, rot) {   // 스테이플러: 짙은 몸통, 은색 덮개, 빨간 끝
+function drawStapler(x, y, rot, t, flip) {   // 스테이플러 (obstacles.png stapler: 입이 딱딱). 그림이 없으면 사각형으로
+  if (drawSprite('obstacles', 'stapler', 'snap', t || 0, x, y, { anchor: 'c', fw: 12, fh: 12, nofb: true, rot: rot, flip: flip })) return;
   ctx.save(); ctx.translate(Math.round(x), Math.round(y)); ctx.rotate(rot);
   rect(-6, -1, 12, 3, '#3A3D43'); rect(-6, -3, 10, 2, '#9AA0A8'); rect(3, -3, 3, 1, '#A13D3D'); rect(-6, 2, 12, 1, '#2A2C31');
   ctx.restore();
@@ -1601,37 +1662,17 @@ function drawChair(x, y, rot, o) {   // 사무실 의자 (obstacles.png chair, �
   rect(-1, 0, 2, 4, '#9AA0A8'); rect(-5, 4, 10, 1, '#2A2C31'); rect(-5, 5, 2, 2, '#1E1F22'); rect(3, 5, 2, 2, '#1E1F22');
   ctx.restore();
 }
-function drawRollingChair(p, px) {   // 굴러오는 의자: 방향을 바꾸지 않고 지금 계단 줄을 따라 곧게 두 칸씩 튀며 굴러 내려온다.
-  // 위쪽에 이어진 칸이 짧으면 그 위 층참에서 날아 떨어져 들어오고, 넘어가는 의자는 머리 위로 공중제비를 돌며 넘어 같은 방향으로 가다가 앞에 칸이 없으면 계단 밖으로 떨어진다.
-  // 움직임: 바퀴가 돌고, 내려가는 쪽으로 기울고, 칸에 내려앉을 때 눌리고(가로로 퍼짐) 공중에서는 살짝 늘어난다
+function drawRollingChair(p, px) {   // 튀어 내려오는 의자: 자리는 chairPos(규칙과 같다). 내려앉을 때 눌리고, 공중에서는 아치를 따라 기운다
   const r = run, s = p.side;
-  if (r.time < p.spawnT) return;
-  const u = clamp((r.time - p.spawnT) / Math.max(0.01, p.impactT - p.spawnT), 0, 1);
-  const dx = Math.abs(stairX(r.steps + 1) - stairX(r.steps)) || CONFIG.stepW;
-  const line = function (j) { return [160 + (stairX(r.steps) + s * j * dx - r.camX), PLAYER_Y + (-(r.steps + j) * CONFIG.stepH - r.camY) - 7]; };
-  let up = 0; while (up < 5 && dirAt(r.steps + up) === s) up++;
-  let down = 0; while (down < 8 && r.steps - 1 - down >= 0 && dirAt(r.steps - 1 - down) === s) down++;
-  const roll = function (j, j0) {                                          // [x, y, 칸 위로 뜬 높이]
-    const q = line(j);
-    if (j > up) return [q[0], q[1] - (j - up) * 7, 9];
-    const g = (j0 - j) / 2, h = Math.sin((g - Math.floor(g)) * Math.PI) * 9; return [q[0], q[1] - h, h];
-  };
-  let x, y, h, rot = -s * 0.32, spin = null;                               // rot: 내려가는 쪽으로 기울기
-  if (p.over && (u > 0.8 || p.passed)) {
-    const a0 = roll(1.2, 5), b0 = line(-2);
-    if (r.time < p.impactT) { const v = (u - 0.8) / 0.2; x = lerp(a0[0], b0[0], v); y = lerp(a0[1], b0[1], v) - Math.sin(v * Math.PI) * 38; h = 9; spin = -s * v * Math.PI * 2; }   // 머리 위로 공중제비
-    else {
-      const e = r.time - p.impactT, j = -2 - e * 6;
-      if (-j <= down) { const g = (-2 - j) / 2, q = line(j); h = Math.sin((g - Math.floor(g)) * Math.PI) * 9; x = q[0]; y = q[1] - h; }
-      else { const edge = -Math.max(2, down), te = e - Math.max(0, (Math.max(2, down) - 2) / 6), q = line(edge); x = q[0] - s * dx * 6 * te; y = q[1] - 6 * te + 300 * te * te; h = 9; spin = -s * te * 12; }   // 계단 밖으로 떨어지며 돈다
-    }
-  } else {
-    const j = lerp(5, p.over ? 1.2 : 0.35, p.over ? u / 0.8 : u), q = roll(j, 5); x = q[0]; y = q[1]; h = q[2];
-  }
-  const ground = h < 1.2;
-  if (spin !== null) rot = spin; else rot += -s * 0.25 * Math.min(1, h / 9);   // 공중에서는 더 기운다
-  drawChair(x, y, rot, { t: r.time - p.spawnT, flip: s > 0, sx: ground ? 1.14 : 0.94, sy: ground ? 0.84 : 1.06 });   // 내려앉을 때 눌리고, 공중에서는 늘어난다
-  if (r.time >= p.spawnT && showMarks() && !p.passed) {
+  const c = chairPos(p, r.time);                                           // 규칙과 같은 자리
+  const x = 160 + (c.x - r.camX), y = PLAYER_Y + (c.y - r.camY);
+  let rot = -s * 0.3, ground = false;
+  if (c.phase === 'fall') rot = -s * (0.3 + c.e * 10);
+  else if (c.phase === 'drop') rot = -s * (0.3 + c.u * 0.6);
+  else if (c.phase === 'hop') { ground = c.u < 0.1 || c.u > 0.94; rot = -s * (0.3 + (c.u - 0.5) * 0.7); }
+  if (QA_HOOK) QA_HOOK('chair', p, x, y, ground);
+  drawChair(x, y, rot, { t: r.time - p.spawnT, flip: s > 0, sx: ground ? 1.16 : 0.95, sy: ground ? 0.82 : 1.06 });
+  if (showMarks() && p.fallT === null && chairHitT(r, p)) {               // 나에게 닿을 의자에만 "!"
     const wx = clamp(x, 8, W - 8), wy = y - 20;
     const wk = drawSprite('warning', 'default', 'blink', r.time - p.spawnT, wx, wy, { anchor: 'c', fw: 8, fh: 12, nofb: true });
     if (!wk && Math.floor(time * 8) % 2 === 0) { rect(wx - 5, wy - 7, 10, 14, PAL.red); txt('!', wx, wy, { align: 'center', base: 'middle', size: 10, bold: true, shadow: false }); }
@@ -1642,14 +1683,15 @@ function drawEnvelope(x, y) {   // 편지 봉투: 흰 봉투, 접힌 날개
   rect(X - 5, Y - 3, 10, 7, '#5A5F66'); rect(X - 4, Y - 2, 8, 5, '#E8E6DF');
   rect(X - 4, Y - 2, 2, 1, '#9AA0A8'); rect(X - 2, Y - 1, 2, 1, '#9AA0A8'); rect(X, Y - 1, 2, 1, '#9AA0A8'); rect(X + 2, Y - 2, 2, 1, '#9AA0A8'); rect(X - 1, Y, 2, 1, '#A13D3D');
 }
-function drawEnvelopes(p, px) {   // 편지 3연발: 같은 쪽에서 envelopeGap 박자로 한 장씩
-  const r = run, dur = Math.max(0.01, p.impactT - p.spawnT), tx = px + p.side * 8, ty = PLAYER_Y - 16, x0 = p.side < 0 ? -16 : W + 16;
+function drawEnvelopes(p, px, py) {   // px, py: 정해진 자리   // 편지 3연발: 같은 쪽에서 envelopeGap 박자로 한 장씩
+  const r = run, dur = Math.max(0.01, p.impactT - p.spawnT), tx = px + p.side * 8, ty = py - 16, x0 = p.side < 0 ? -16 : W + 16;
   for (let k = p.k; k < CONFIG.envelopeCount; k++) {
     const t0 = p.spawnT + k * CONFIG.envelopeGap;
     if (r.time < t0) continue;
     const u = clamp((r.time - t0) / dur, 0, 1);
     const ex = lerp(x0, tx, u), ey = ty - Math.sin(u * Math.PI) * 14 + (k % 2) * 3, et = r.time - t0;
     for (let j = 1; j <= 3; j++) rect(ex + p.side * (4 + j * 4) - 1, ey - 1 + (j % 2) * 2, 4, 1, '#E8E6DF', 0.42 - j * 0.12);   // 뒤에 남는 바람 줄
+    if (QA_HOOK) QA_HOOK('envelope', p, ex, ey, k);
     if (!drawSprite('obstacles', 'envelope', 'fly', et + k * 0.13, ex, ey, { anchor: 'c', fw: 12, fh: 12, nofb: true, rot: Math.sin(et * 14 + k) * 0.22, flip: p.side > 0 }))
       drawEnvelope(ex, ey);                                                // 돌며 펄럭이고 흔들린다
   }
@@ -1660,18 +1702,21 @@ function drawEnvelopes(p, px) {   // 편지 3연발: 같은 쪽에서 envelopeGa
     txt('×' + (CONFIG.envelopeCount - p.k), wx + 10, wy, { align: 'center', base: 'middle', size: 7, bold: true, color: '#E3B65C' });
   }
 }
-function drawPlane(x, y, side) {   // 종이비행기: 코가 날아가는 쪽(-side)
+function drawPlane(x, y, side, t) {   // 종이비행기 (obstacles.png plane: 날개가 파닥, 코가 날아가는 쪽). 그림이 없으면 사각형으로
+  if (drawSprite('obstacles', 'plane', 'flap', t || 0, x, y, { anchor: 'c', fw: 10, fh: 10, nofb: true, flip: side > 0 })) return;
   const f = -side, X = Math.round(x), Y = Math.round(y);
   rect(X - 4, Y, 9, 1, '#E8E6DF'); rect(f > 0 ? X - 3 : X - 2, Y - 1, 6, 1, '#E8E6DF'); rect(f > 0 ? X - 4 : X + 1, Y - 2, 4, 1, '#C9CCD1');
   rect(f > 0 ? X - 2 : X - 1, Y + 1, 4, 1, '#9AA0A8');
 }
-function drawAirplanes(p, px) {   // 종이비행기 편대: 비행기마다 airplaneGap만큼 늦게 같은 쪽에서
-  const r = run, dur = Math.max(0.01, p.impactT - p.spawnT), tx = px + p.side * 8, ty = PLAYER_Y - 16, x0 = p.side < 0 ? -16 : W + 16;
+function drawAirplanes(p, px, py) {   // px, py: 정해진 자리   // 종이비행기 편대: 비행기마다 airplaneGap만큼 늦게 같은 쪽에서
+  const r = run, dur = Math.max(0.01, p.impactT - p.spawnT), tx = px + p.side * 8, ty = py - 16, x0 = p.side < 0 ? -16 : W + 16;
   for (let k = p.k; k < CONFIG.airplaneCount; k++) {
     const t0 = p.spawnT + k * CONFIG.airplaneGap;
     if (r.time < t0) continue;
     const u = clamp((r.time - t0) / dur, 0, 1);
-    drawPlane(lerp(x0, tx, u), ty - 6 + (k % 2) * 3 - Math.sin(u * Math.PI) * 10, p.side);
+    const qx = lerp(x0, tx, u), qy = ty - 6 + (k % 2) * 3 - Math.sin(u * Math.PI) * 10;
+    if (QA_HOOK) QA_HOOK('plane', p, qx, qy, k);
+    drawPlane(qx, qy, p.side, r.time - t0 + k * 0.07);
   }
   if (r.time >= p.spawnT && showMarks()) {
     const u = clamp((r.time - p.spawnT) / dur, 0, 1), wx = clamp(lerp(x0, tx, u), 8, W - 8), wy = ty - 26;
@@ -1719,7 +1764,7 @@ function drawHud() {
   if (r.combo > 0) {
     // COMBO = 연속으로 막은 횟수, 그 아래 점수 배수 (3연속마다 ×1, 최대 ×10)
     txt(r.combo + ' COMBO', 160, 8, { align: 'center', size: 10, bold: true, color: '#E3B65C' });
-    txt('점수 ×' + r.mult, 160, 21, { align: 'center', size: 6, bold: true, color: r.mult >= CONFIG.maxMult ? PAL.red : PAL.text });
+    txtO('점수 ×' + r.mult, 160, 21, { align: 'center', size: 6, bold: true, color: r.mult >= CONFIG.maxMult ? '#FF8A7A' : '#E8E6DF' });
   }
   // 4 조작 키 (아래 가운데)
   drawKeyCap(114, 158, 0, 'arrow_left', '←');
@@ -1780,12 +1825,12 @@ function drawHelp() {
     txt(row[1], 104, y + 7, { base: 'middle', size: 7 });
   });
   txt('"!" 1초 뒤 도착 · 도착 직전 0.2초 안에 맞는 쪽 키 (소리의 박)', 160, 100, { align: 'center', size: 6, color: PAL.green });
-  txt('11층~ 경쟁 사원 · 커피(× 표시: 막으면 하트 -1)', 160, 106, { align: 'center', size: 6, color: PAL.red });
-  txt('15층~ 스테이플러(반대쪽) · 20층~ 종이비행기(꾹) · 25층~ 편지 3장(박자)', 160, 112, { align: 'center', size: 6, color: PAL.green });
-  txt('21층~ 모니터 · 금 간 계단 · 30층~ 젖은 계단 · 굴러오는 의자(튀면 두기)', 160, 118, { align: 'center', size: 6, color: PAL.red });
-  txt('20층~ 에스컬레이터 · 35층~ 거꾸로 칸(반대 키) · 41층~ 사라지는 칸 · 61층~ 상사의 눈', 160, 124, { align: 'center', size: 6, color: PAL.red });
-  txt('31층~ 전화기 · 41층~ 서류(반대쪽) · 61층~ 포스트잇(색=횟수)', 160, 130, { align: 'center', size: 6, color: PAL.green });
-  txt('61층~ 카메라 플래시(무해) · 71층~ 서류가방(터질 때 막기)', 160, 136, { align: 'center', size: 6, color: PAL.green });
+  txt('11층~ 경쟁 사원 · 커피(× 표시: 막으면 하트 -1) · 15층~ 스테이플러(반대쪽)', 160, 106, { align: 'center', size: 6, color: '#D9DCE0' });
+  txt('20층~ 종이비행기(키 꾹) · 에스컬레이터 · 21층~ 모니터 · 금 간 계단', 160, 112, { align: 'center', size: 6, color: '#D9DCE0' });
+  txt('25층~ 편지 3장(박자) · 30층~ 젖은 계단 · 튀어 내려오는 의자(내 칸이면 막기)', 160, 118, { align: 'center', size: 6, color: '#D9DCE0' });
+  txt('31층~ 전화기 · 35층~ 거꾸로 칸(반대 키) · 41층~ 서류 · 사라지는 칸', 160, 124, { align: 'center', size: 6, color: '#D9DCE0' });
+  txt('61층~ 상사의 눈 · 포스트잇(색=횟수) · 카메라 플래시(무해)', 160, 130, { align: 'center', size: 6, color: '#D9DCE0' });
+  txt('71층~ 서류가방(터질 때 막기)', 160, 136, { align: 'center', size: 6, color: '#D9DCE0' });
   txt('틀린 방향·놓친 공격은 하트 -1, 새 층마다 하트 +1', 160, 142, { align: 'center', size: 6, color: PAL.text });
   drawButtons();
 }
@@ -1810,8 +1855,8 @@ const DEMOS = [
   { id: 'stapler', name: '스테이플러', how: '막으면 뒤로 튕겼다가 머리 위로 휘어 반대쪽에서 돌아와요. 반대쪽 키로 한 번 더 (↺)', at: 156, threat: 'stapler' },
   { id: 'airplane', name: '종이비행기 편대', how: '날아오는 쪽 막기 키를 꾹 누르고 있기. 마지막 비행기까지 떼지 마세요', at: 156, threat: 'airplane' },
   { id: 'envelope', name: '편지 3연발', how: '같은 쪽에서 박자에 맞춰 세 장이 와요. 한 장씩 "착, 착, 착" 세 번 막기', at: 156, threat: 'envelope' },
-  { id: 'chair', name: '굴러오는 의자', how: '위 계단에서 굴러 내려와요. 오는 쪽 키로 막기', at: 186, threat: 'chair', over: false },
-  { id: 'chairover', name: '튀어 오르는 의자', how: '마지막에 크게 튀어 오르면 머리 위로 넘어가요. 막지 말고 그냥 두기', at: 186, threat: 'chair', over: true },
+  { id: 'chair', name: '튀어 내려오는 의자', how: '계단을 두 칸씩 튀며 내려와요. 내 칸에 내려앉을 때 맞으니 가만히 서서 오는 쪽 키로 막기', at: 186, threat: 'chair' },
+  { id: 'chairdodge', name: '의자 피하기', how: '의자가 내려앉는 칸에 없으면 맞지 않아요. 한 칸 올라 피하기', at: 186, threat: 'chair', climb: [1.0] },
   { id: 'reverse', name: '거꾸로 칸', how: '보라색 칸에서는 반대쪽 화살표를 눌러야 올라가요 ("반대로!")', at: 236, climb: [0.5, 0.85, 1.2, 1.55], dur: 2.4 },
   { id: 'cracked', name: '금 간 계단', how: '서 있으면 흔들리다 1.5초면 무너져요. 멈추지 말고 다음 칸으로', at: 170, climb: [0.5, 1.5, 1.85, 2.2], dur: 3.2 },
   { id: 'escalator', name: '내려가는 에스컬레이터', how: '쇠빛 칸에 가만히 서 있으면 아래로 밀려요. 쉬지 말고 지나가기', at: 205, climb: [1.6, 1.95, 2.3, 2.65], dur: 3.4 },
@@ -1882,8 +1927,9 @@ function demoUpdate(dt) {
       const s = p.side < 0 ? 0 : 1; r.held[s] = true; padUntil[s + 2] = time + 0.05; demoPress(d, s + 2, '꾹!');
     });
     r.projs.forEach(function (p) {
-      if (p.done || p.type === 'airplane' || (p.type === 'chair' && p.over)) return;
-      const tti = (p.type === 'envelope' ? p.impactT + p.k * CONFIG.envelopeGap : p.impactT) - r.time, s = p.side < 0 ? 0 : 1;
+      if (p.done || p.type === 'airplane') return;
+      const ch = p.type === 'chair' ? chairHitT(r, p) : null; if (p.type === 'chair' && !ch) return;
+      const tti = (ch ? ch.t : p.type === 'envelope' ? p.impactT + p.k * CONFIG.envelopeGap : p.impactT) - r.time, s = p.side < 0 ? 0 : 1;
       if (p.type === 'coffee') { if (tti > 0 && tti <= 0.35) d.holdUntil = time + 0.45; return; }
       if (p.locked !== false && tti > 0 && tti <= CONFIG.botParryLead && r.time >= r.parryCd[s]) { keyParry(p.side); demoPress(d, s + 2); }
     });
@@ -1891,7 +1937,6 @@ function demoUpdate(dt) {
     if (r.forceType && r.projs.length) {                              // 한 번만 내보낸다
       r.forceType = null; r.nextAttack = 1e9; d.spawned = true;
       if (sc.hp) r.projs[0].hp = sc.hp;
-      if (sc.over !== undefined) r.projs[0].over = sc.over;          // 의자: 넘어가는지 정해 보여 준다
     }
     if (sc.flash && r.camFlash) r.nextFlash = 1e9;
     d.rivalWait = r.projs.some(function (p) { return p.type === 'rival' && p.waiting; });   // 경쟁 사원이 계단 장애물 앞에서 기다리는 중
@@ -1910,10 +1955,10 @@ function drawDemo() {
   for (let i = 0; i < 4; i++) drawKeyCap(DEMO_KEY_X[i], 158, i, ['arrow_left', 'arrow_right', 'shield_q', 'shield_e'][i], ['←', '→', 'Q', 'E'][i]);
   if (time < d.nowUntil) {                                          // 지금 누른 키
     const kx = DEMO_KEY_X[d.nowKey] + 9;
-    txt(d.nowText, kx, 146, { align: 'center', base: 'middle', size: 7, bold: true, color: '#E3B65C' });
-    rect(kx - 1, 151, 2, 5, '#E3B65C');
+    txtO(d.nowText, kx, 134, { align: 'center', base: 'middle', size: 7, bold: true, color: '#F2C46A' });   // 층 표시와 겹치지 않게 위로
+    rect(kx - 1, 140, 2, 16, '#E3B65C');
   }
-  if (time < d.holdUntil) txt('누르지 마세요!', 160, 146, { align: 'center', base: 'middle', size: 7, bold: true, color: PAL.red });
+  if (time < d.holdUntil) txtO('누르지 마세요!', 160, 146, { align: 'center', base: 'middle', size: 7, bold: true, color: PAL.red });
   if (d.waiting) txt('기다리기…', 160, 146, { align: 'center', base: 'middle', size: 7, bold: true, color: '#E3B65C' });
   else if (d.rivalWait && time >= d.nowUntil) txt('경쟁 사원도 기다려요', 160, 146, { align: 'center', base: 'middle', size: 7, bold: true, color: '#E3B65C' });
   drawButtons();
@@ -1948,7 +1993,7 @@ function drawResult() {
   // 1 상자를 들고 걸어 나가는 큰 모습 (구조조정은 회색 실루엣, 승급은 제 색으로 뿌듯한 자세)
   const rk = CONFIG.rankNames[r.rankIdx];
   drawSprite('player', rk, promo ? 'proud' : 'box_exit', time, 62, 176,
-             { scale: 4.6, fw: 16, fh: 28, color: RANK_COLORS[r.rankIdx], flip: !promo, filter: promo ? undefined : 'grayscale(1) brightness(0.85) contrast(0.85)' });
+             { scale: 4, fw: 16, fh: 28, color: RANK_COLORS[r.rankIdx], flip: !promo, filter: promo ? undefined : 'grayscale(1) brightness(0.85) contrast(0.85)' });
   // 3 위 가운데 판정 판. 구조조정은 도장처럼 크게 떨어져 쾅 찍힌다 (화면 흔들림, 잉크 튐)
   // 승급도 구조조정도 판정 판이 도장처럼 찍힌다
   const rt = time - (r.t0 || 0), k = clamp((rt - 0.15) / 0.22, 0, 1);
@@ -1980,7 +2025,7 @@ function drawResult() {
     rect(200, y, 44, 12, '#141518'); frameRect(200, y, 44, 12, row[2] ? PAL.text : PAL.green);
     txt(row[1], 222, y + 6.5, { align: 'center', base: 'middle', size: 6, bold: true, color: row[2] ? PAL.text : '#A9B57C', shadow: false });
   });
-  if (r.newBest) txt('NEW', 246, 64, { size: 6, bold: true, color: PAL.red, align: 'right' });
+  if (r.newBest) txtO('NEW', 262, 49, { size: 6, bold: true, color: '#FF6A5E', align: 'right' });
   // 구조조정 팁: 도장이 찍힌 뒤 떠오른다
   if (!promo) {
     const a = clamp((rt - 0.5) / 0.3, 0, 1);

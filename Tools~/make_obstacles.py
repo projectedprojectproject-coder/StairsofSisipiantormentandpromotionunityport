@@ -1,5 +1,5 @@
 """굴러오는 의자·편지 스프라이트 (obstacles.png, 32x32 프레임, 2배 밀도 = 화면 16x16).
-0행 의자 roll 0~3 (바퀴살이 돈다, 몸통이 1px 들썩), 1행 편지 fly 0~3 (돌며 날개가 펄럭인다).
+0행 의자 roll 0~3 (바퀴살이 돈다, 몸통이 1px 들썩), 1행 편지 fly 0~3 (돌며 날개가 펄럭인다), 2행 스테이플러 snap 0~3 (입이 딱딱), 3행 종이비행기 flap 0~3 (날개가 파닥).
 그린 뒤 외곽선을 한 번에 두르고, upgrade16.py가 명암을 넣는다. 사용: python make_obstacles.py <assets 폴더>"""
 import sys, json, math
 import numpy as np
@@ -85,14 +85,41 @@ def envelope(k):
     cx = x0 + W // 2; c.disc(cx - 0.5, y0 + apex, 2.2, SEAL); c.px(cx - 1, y0 + apex - 1, C('E06A5E')); c.px(cx, y0 + apex + 1, SEAL_D)   # 빨간 봉인
     return c.img()
 
-sheet = np.zeros((F * 2, F * 4, 4), np.uint8)
+CHAR, CHAR_L, CHAR_D, RED, RED_D = C('3A3D43'), C('5A5F66'), C('26282D'), C('C23B3B'), C('7E2424')
+def stapler(k):
+    """스테이플러 (옆모습, 오른쪽이 앞): 짙은 받침, 은색 윗팔(뒤 경첩), 빨간 앞끝. 날아가며 입이 딱딱 벌어졌다 닫힌다"""
+    c = Cell(); op = [0, 2, 4, 1][k]                 # 윗팔이 열리는 정도
+    c.rect(5, 19, 22, 4, CHAR); c.rect(5, 19, 22, 1, CHAR_L); c.rect(5, 22, 22, 1, CHAR_D)   # 받침
+    c.rect(24, 18, 3, 2, CHAR_D)                       # 앞 모루
+    c.rect(5, 14, 4, 6, CHAR_D)                        # 경첩
+    for x in range(7, 27):                             # 윗팔: 경첩에서 앞으로, 열릴수록 앞이 들린다
+        y = 13 - int(op * (x - 7) / 19)
+        c.rect(x, y, 1, 5, STEEL); c.px(x, y, STEEL_L); c.px(x, y + 4, STEEL_D)
+    tip = 13 - op; c.rect(24, tip, 4, 5, RED); c.rect(24, tip, 4, 1, C('E06A5E')); c.rect(27, tip + 1, 1, 4, RED_D)   # 빨간 앞끝
+    if op >= 2: c.rect(25, 18 - 1, 2, 1, STEEL_L)       # 열렸을 때 보이는 심
+    return c.img()
+def plane(k):
+    """종이비행기 (옆모습, 코가 오른쪽): 흰 날개 위·아래 판, 가운데 접힌 선. 날개가 파닥인다"""
+    c = Cell(); lift = [0, 2, 3, 1][k]
+    for i in range(18):                                # 위 날개: 뒤가 넓고 코로 갈수록 좁다
+        x = 7 + i; top = 12 - lift + int(i * (4 + lift) / 18); bot = 17
+        for y in range(top, bot): c.px(x, y, PAPER_L if y < top + 2 else PAPER)
+    for i in range(16):                                # 아래 날개(그늘)
+        x = 9 + i; bot = 21 - int(i * 4 / 16)
+        for y in range(17, bot): c.px(x, y, PAPER_D)
+    c.line(7, 17, 25, 16, PAPER_DD)                    # 가운데 접힌 선
+    c.px(25, 16, PAPER_L); c.px(26, 16, PAPER)
+    return c.img()
+
+sheet = np.zeros((F * 4, F * 4, 4), np.uint8)
 for k in range(4):
     sheet[0:F, k * F:(k + 1) * F] = chair(k); sheet[F:2 * F, k * F:(k + 1) * F] = envelope(k)
+    sheet[2 * F:3 * F, k * F:(k + 1) * F] = stapler(k); sheet[3 * F:4 * F, k * F:(k + 1) * F] = plane(k)
 Image.fromarray(sheet).save(f"{A}/obstacles.png")
 def upd(d):
-    d['sprites']['obstacles'] = {'file': 'obstacles.png', 'frame_w': 32, 'frame_h': 32, 'variants': {'chair': 0, 'envelope': 1},
-                                 'animations': {'roll': {'frames': [0, 1, 2, 3], 'fps': 12}, 'fly': {'frames': [0, 1, 2, 3], 'fps': 10}}}
+    d['sprites']['obstacles'] = {'file': 'obstacles.png', 'frame_w': 32, 'frame_h': 32, 'variants': {'chair': 0, 'envelope': 1, 'stapler': 2, 'plane': 3},
+                                 'animations': {'roll': {'frames': [0, 1, 2, 3], 'fps': 12}, 'fly': {'frames': [0, 1, 2, 3], 'fps': 10}, 'snap': {'frames': [0, 1, 2, 3], 'fps': 10}, 'flap': {'frames': [0, 1, 2, 3], 'fps': 14}}}
 jp = f"{A}/sprite_definition.json"; d = json.load(open(jp, encoding='utf-8')); upd(d); open(jp, 'w', encoding='utf-8').write(json.dumps(d, ensure_ascii=False, indent=2))
 js = f"{A}/sprite_definition.js"; t = open(js, encoding='utf-8').read(); pre = t[:t.index('{')]; d2 = json.loads(t[t.index('{'):].rstrip().rstrip(';')); upd(d2)
 open(js, 'w', encoding='utf-8').write(pre + json.dumps(d2, ensure_ascii=False) + ';\n')
-print('obstacles.png 4x2')
+print('obstacles.png 4x4')

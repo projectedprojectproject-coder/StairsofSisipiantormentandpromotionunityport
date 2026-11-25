@@ -42,7 +42,7 @@ namespace Stairs.Core
         public int staplerFromFloor = 15; public float weightStapler = 0.6f, staplerReturn = 0.9f;            // 막으면 반대쪽에서 돌아온다
         public int airplaneFromFloor = 20; public float weightAirplane = 0.5f; public int airplaneCount = 4; public float airplaneGap = 0.1f;   // 꾹 누르기
         public int envelopeFromFloor = 25; public float weightEnvelope = 0.6f; public int envelopeCount = 3; public float envelopeGap = 0.4f;   // 편지 3연발: 박자에 맞춰 세 번
-        public int chairFromFloor = 30; public float weightChair = 0.6f, chairOverShare = 0.35f;   // 굴러오는 의자 (이만큼은 머리 위로 넘어감)
+        public int chairFromFloor = 30; public float weightChair = 0.6f, chairHop = 0.34f;   // 튀어 내려오는 의자: 두 칸을 한 번에 튀는 시간(초)
         public int reverseFromFloor = 35; public float reverseShare = 0.10f;   // 거꾸로 칸: 반대쪽 화살표로 오른다
         public int escalatorFromFloor = 20; public float escalatorShare = 0.12f, escalatorPush = 0.6f;       // 서 있으면 밀려 내려간다
         public int vanishFromFloor = 41; public float vanishShare = 0.10f, vanishShow = 5f, vanishHide = 1f, vanishWarn = 1f;   // 5초 있고 1초 없어짐
