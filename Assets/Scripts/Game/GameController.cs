@@ -1043,22 +1043,34 @@ namespace Stairs.Game
             if (!wk && Math.Floor(time * 8) % 2 == 0) { Rect(wx - 5, y - 7, 10, 14, PalRed); Txt("!", wx, y, T(10, "center", "middle", true, shadow: false)); }
         }
         void DrawRollingChair(Threat p, double ppx)
-        {   // 굴러오는 의자: 위 계단 칸들을 따라 한 칸씩 통통 튀며 굴러 내려온다 (칸 윗면 위). 넘어가는 의자는 바로 윗칸에서 크게 튀어 머리 위로 넘어가 아래 칸들로 계속 굴러 떨어진다 (웹 drawRollingChair)
+        {   // 굴러오는 의자: 방향을 바꾸지 않고 지금 계단 줄을 따라 곧게 두 칸씩 튀며 굴러 내려온다 (웹 drawRollingChair).
+            // 위쪽에 이어진 칸이 짧으면 그 위 층참에서 날아 떨어져 들어오고, 넘어가는 의자는 머리 위를 넘어 같은 방향으로 가다가 앞에 칸이 없으면 계단 밖으로 떨어진다
             var r = run; int s = p.side;
             if (r.time < p.spawnT) return;
-            double u = Clamp((r.time - p.spawnT) / Math.Max(0.01, p.impactT - p.spawnT), 0, 1), x, y;
-            Func<double, (double, double)> onTile = q => { int i = (int)Math.Floor(q); double f = q - i; return (160 + (Lerp(r.Stairs.StairX(i), r.Stairs.StairX(i + 1), f) - r.camX), PLAYER_Y + (-q * D(C.stepH) - r.camY) - 7); };   // 바퀴가 칸 윗면에 닿는 자리
+            double u = Clamp((r.time - p.spawnT) / Math.Max(0.01, p.impactT - p.spawnT), 0, 1);
+            double dx = Math.Abs(r.Stairs.StairX(r.steps + 1) - r.Stairs.StairX(r.steps)); if (dx == 0) dx = D(C.stepW);
+            Func<double, (double x, double y)> line = j => (160 + (r.Stairs.StairX(r.steps) + s * j * dx - r.camX), PLAYER_Y + (-(r.steps + j) * D(C.stepH) - r.camY) - 7);
+            int up = 0; while (up < 5 && r.Stairs.DirAt(r.steps + up) == s) up++;
+            int down = 0; while (down < 8 && r.steps - 1 - down >= 0 && r.Stairs.DirAt(r.steps - 1 - down) == s) down++;
+            Func<double, double, (double x, double y)> roll = (j, j0) =>
+            {   // 칸 위면 두 칸씩 튀고, 칸이 없는 높이(층참 위)에서는 날아 떨어진다
+                var q = line(j);
+                if (j > up) return (q.x, q.y - (j - up) * 7);
+                double g = (j0 - j) / 2; return (q.x, q.y - Math.Sin((g - Math.Floor(g)) * Math.PI) * 9);
+            };
+            double x, y;
             if (p.over && (u > 0.8 || p.passed))
             {
-                var a0 = onTile(r.steps + 1.2); double bx = ppx - s * 28, by = PLAYER_Y + 4;   // 바로 윗칸에서 내 머리 위를 넘어 뒤쪽으로
-                if (r.time < p.impactT) { double v = (u - 0.8) / 0.2; x = Lerp(a0.Item1, bx, v); y = Lerp(a0.Item2, by, v) - Math.Sin(v * Math.PI) * 38; }
-                else { double e = r.time - p.impactT; x = bx - s * 60 * e; y = by + 25 * e + 140 * e * e; }   // 계단 아래로 계속 굴러 떨어진다
+                var a0 = roll(1.2, 5); var b0 = line(-2);
+                if (r.time < p.impactT) { double v = (u - 0.8) / 0.2; x = Lerp(a0.x, b0.x, v); y = Lerp(a0.y, b0.y, v) - Math.Sin(v * Math.PI) * 38; }   // 머리 위를 넘는다
+                else
+                {
+                    double e = r.time - p.impactT, j = -2 - e * 6;
+                    if (-j <= down) { double g = (-2 - j) / 2; var q = line(j); x = q.x; y = q.y - Math.Sin((g - Math.Floor(g)) * Math.PI) * 9; }   // 아래 칸들을 같은 방향으로
+                    else { int edge = Math.Max(2, down); double te = e - Math.Max(0, (edge - 2) / 6.0); var q = line(-edge); x = q.x - s * dx * 6 * te; y = q.y - 6 * te + 300 * te * te; }   // 앞에 칸이 없다: 계단 밖으로 떨어진다
+                }
             }
-            else
-            {
-                double fi = Lerp(r.steps + 5, p.over ? r.steps + 1.2 : r.steps + 0.35, p.over ? u / 0.8 : u); var q = onTile(fi);
-                x = q.Item1; y = q.Item2 - Math.Abs(Math.Sin((fi - Math.Floor(fi)) * Math.PI)) * 5;   // 칸 모서리마다 튄다
-            }
+            else { double j = Lerp(5, p.over ? 1.2 : 0.35, p.over ? u / 0.8 : u); var q = roll(j, 5); x = q.x; y = q.y; }
             DrawChair(x, y, -s * (r.time - p.spawnT) * 9);
             if (ShowMarks() && !p.passed) DrawWarnMark(x, y - 20, p);
         }

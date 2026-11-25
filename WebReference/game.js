@@ -1599,20 +1599,31 @@ function drawChair(x, y, rot) {   // 사무실 의자: 남색 등받이·앉는 
   rect(-1, 0, 2, 4, '#9AA0A8'); rect(-5, 4, 10, 1, '#2A2C31'); rect(-5, 5, 2, 2, '#1E1F22'); rect(3, 5, 2, 2, '#1E1F22');
   ctx.restore();
 }
-function drawRollingChair(p, px) {   // 굴러오는 의자: 위 계단 칸들을 따라 한 칸씩 통통 튀며 굴러 내려온다 (칸 윗면 위).
-  // 넘어가는 의자는 바로 윗칸에서 크게 튀어 내 머리 위를 넘어 뒤쪽으로, 계단 아래로 계속 굴러 떨어진다
+function drawRollingChair(p, px) {   // 굴러오는 의자: 방향을 바꾸지 않고 지금 계단 줄을 따라 곧게 두 칸씩 튀며 굴러 내려온다.
+  // 위쪽에 이어진 칸이 짧으면 그 위 층참에서 날아 떨어져 들어오고, 넘어가는 의자는 머리 위를 넘어 같은 방향으로 가다가 앞에 칸이 없으면 계단 밖으로 떨어진다
   const r = run, s = p.side;
   if (r.time < p.spawnT) return;
   const u = clamp((r.time - p.spawnT) / Math.max(0.01, p.impactT - p.spawnT), 0, 1);
-  const onTile = function (fi) { const i = Math.floor(fi), f = fi - i; return [160 + (lerp(stairX(i), stairX(i + 1), f) - r.camX), PLAYER_Y + (-fi * CONFIG.stepH - r.camY) - 7]; };   // 바퀴가 칸 윗면에 닿는 자리
+  const dx = Math.abs(stairX(r.steps + 1) - stairX(r.steps)) || CONFIG.stepW;
+  const line = function (j) { return [160 + (stairX(r.steps) + s * j * dx - r.camX), PLAYER_Y + (-(r.steps + j) * CONFIG.stepH - r.camY) - 7]; };   // 내 칸에서 j칸 위(음수면 아래) 같은 줄, 바퀴가 칸 윗면에 닿는 자리
+  let up = 0; while (up < 5 && dirAt(r.steps + up) === s) up++;            // 위로 같은 방향으로 이어진 칸 수
+  let down = 0; while (down < 8 && r.steps - 1 - down >= 0 && dirAt(r.steps - 1 - down) === s) down++;   // 아래로 이어진 칸 수
+  const roll = function (j, j0) {                                          // 칸 위면 두 칸씩 튀고, 칸이 없는 높이(층참 위)에서는 날아 떨어진다
+    const q = line(j);
+    if (j > up) return [q[0], q[1] - (j - up) * 7];
+    const g = (j0 - j) / 2; return [q[0], q[1] - Math.sin((g - Math.floor(g)) * Math.PI) * 9];
+  };
   let x, y;
   if (p.over && (u > 0.8 || p.passed)) {
-    const a0 = onTile(r.steps + 1.2), bx = px - s * 28, by = PLAYER_Y + 4;                // 바로 윗칸에서 내 머리 위를 넘어 뒤쪽으로
-    if (r.time < p.impactT) { const v = (u - 0.8) / 0.2; x = lerp(a0[0], bx, v); y = lerp(a0[1], by, v) - Math.sin(v * Math.PI) * 38; }
-    else { const e = r.time - p.impactT; x = bx - s * 60 * e; y = by + 25 * e + 140 * e * e; }   // 계단 아래로 계속 굴러 떨어진다
+    const a0 = roll(1.2, 5), b0 = line(-2);
+    if (r.time < p.impactT) { const v = (u - 0.8) / 0.2; x = lerp(a0[0], b0[0], v); y = lerp(a0[1], b0[1], v) - Math.sin(v * Math.PI) * 38; }   // 머리 위를 넘는다
+    else {
+      const e = r.time - p.impactT, j = -2 - e * 6;
+      if (-j <= down) { const g = (-2 - j) / 2, q = line(j); x = q[0]; y = q[1] - Math.sin((g - Math.floor(g)) * Math.PI) * 9; }   // 아래 칸들을 같은 방향으로
+      else { const edge = -Math.max(2, down), te = e - Math.max(0, (Math.max(2, down) - 2) / 6), q = line(edge); x = q[0] - s * dx * 6 * te; y = q[1] - 6 * te + 300 * te * te; }   // 앞에 칸이 없다: 계단 밖으로 떨어진다
+    }
   } else {
-    const fi = lerp(r.steps + 5, p.over ? r.steps + 1.2 : r.steps + 0.35, p.over ? u / 0.8 : u), q = onTile(fi);
-    x = q[0]; y = q[1] - Math.abs(Math.sin((fi - Math.floor(fi)) * Math.PI)) * 5;          // 칸 모서리마다 튄다
+    const j = lerp(5, p.over ? 1.2 : 0.35, p.over ? u / 0.8 : u), q = roll(j, 5); x = q[0]; y = q[1];
   }
   drawChair(x, y, -s * (r.time - p.spawnT) * 9);
   if (r.time >= p.spawnT && showMarks() && !p.passed) {
