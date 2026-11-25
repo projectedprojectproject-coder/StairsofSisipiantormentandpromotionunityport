@@ -7,7 +7,7 @@ import sys, json
 import numpy as np
 from PIL import Image
 src, dst = sys.argv[1], sys.argv[2]
-ids = sys.argv[3:] or ['player', 'rival', 'staff', 'commuter', 'projectiles', 'sticky', 'props', 'stairs']
+ids = sys.argv[3:] or ['player', 'rival', 'staff', 'commuter', 'projectiles', 'sticky', 'props', 'stairs', 'obstacles']
 d = json.load(open(f"{src}/sprite_definition.json", encoding='utf-8'))
 
 SKINS = {(0xd9, 0xb5, 0x96), (0xb8, 0x93, 0x7a)}

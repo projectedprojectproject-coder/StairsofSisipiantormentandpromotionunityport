@@ -529,6 +529,35 @@
           "fps": 2
         }
       }
+    },
+    "obstacles": {
+      "file": "obstacles.png",
+      "frame_w": 32,
+      "frame_h": 32,
+      "variants": {
+        "chair": 0,
+        "envelope": 1
+      },
+      "animations": {
+        "roll": {
+          "frames": [
+            0,
+            1,
+            2,
+            3
+          ],
+          "fps": 12
+        },
+        "fly": {
+          "frames": [
+            0,
+            1,
+            2,
+            3
+          ],
+          "fps": 10
+        }
+      }
     }
   },
   "images": {

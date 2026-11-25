@@ -220,7 +220,7 @@ const DEF = window.SPRITE_DEF || null;
 if (!DEF) assetErrors.push('SPRITE_DEF:missing');
 const D = DEF || { sprites: {}, images: {}, sounds: {} };
 const ASSET_DIR = (D.assets_dir || 'assets').replace(/\/$/, '');
-const SPRITE_IDS = ['player', 'rival', 'projectiles', 'warning', 'stairs', 'hud_icons', 'props', 'commuter', 'sticky', 'staff'];
+const SPRITE_IDS = ['player', 'rival', 'projectiles', 'warning', 'stairs', 'hud_icons', 'props', 'commuter', 'sticky', 'staff', 'obstacles'];
 const IMAGE_IDS = ['bg_zone1', 'bg_zone2', 'bg_zone3', 'bg_zone4', 'bg_zone5', 'title_bg', 'logo', 'bg_lobby', 'bg_result', 'bg_practice'];
 const SOUND_IDS = ['bgm_loop', 'bgm_loop_tense', 'amb_office', 'sfx_step', 'sfx_parry', 'sfx_parry_perfect', 'sfx_hit', 'sfx_warning', 'sfx_promote', 'sfx_gameover', 'sfx_click', 'sfx_phone_ring', 'sfx_cue_clipboard', 'sfx_cue_rival', 'sfx_cue_paper', 'sfx_monitor_shatter', 'sfx_light_flicker', 'sfx_cue_coffee', 'sfx_stair_crack', 'sfx_camera_flash', 'sfx_cue_suitcase', 'bgm_stage1', 'bgm_stage2', 'bgm_stage3', 'bgm_stage4', 'bgm_stage5', 'sfx_electric',
                    'sfx_cue_stapler', 'sfx_cue_sticky', 'sfx_cue_airplane', 'sfx_gaze_warn', 'sfx_gaze_laser', 'sfx_vanish', 'sfx_escalator',
@@ -1593,39 +1593,44 @@ function drawStapler(x, y, rot) {   // 스테이플러: 짙은 몸통, 은색 �
   rect(-6, -1, 12, 3, '#3A3D43'); rect(-6, -3, 10, 2, '#9AA0A8'); rect(3, -3, 3, 1, '#A13D3D'); rect(-6, 2, 12, 1, '#2A2C31');
   ctx.restore();
 }
-function drawChair(x, y, rot) {   // 사무실 의자: 남색 등받이·앉는 판, 은색 기둥, 바퀴
+function drawChair(x, y, rot, o) {   // 사무실 의자 (obstacles.png chair, 바퀴가 돈다). 그림이 없으면 사각형으로
+  o = o || {};
+  if (drawSprite('obstacles', 'chair', 'roll', o.t || 0, x, y - 0.5, { anchor: 'c', fw: 16, fh: 16, nofb: true, rot: rot, sx: o.sx, sy: o.sy, flip: o.flip })) return;
   ctx.save(); ctx.translate(Math.round(x), Math.round(y)); ctx.rotate(rot);
   rect(-5, -11, 3, 9, '#3A4A6A'); rect(-5, -3, 10, 3, '#3A4A6A'); rect(-4, -2, 8, 1, '#4E6290');
   rect(-1, 0, 2, 4, '#9AA0A8'); rect(-5, 4, 10, 1, '#2A2C31'); rect(-5, 5, 2, 2, '#1E1F22'); rect(3, 5, 2, 2, '#1E1F22');
   ctx.restore();
 }
 function drawRollingChair(p, px) {   // 굴러오는 의자: 방향을 바꾸지 않고 지금 계단 줄을 따라 곧게 두 칸씩 튀며 굴러 내려온다.
-  // 위쪽에 이어진 칸이 짧으면 그 위 층참에서 날아 떨어져 들어오고, 넘어가는 의자는 머리 위를 넘어 같은 방향으로 가다가 앞에 칸이 없으면 계단 밖으로 떨어진다
+  // 위쪽에 이어진 칸이 짧으면 그 위 층참에서 날아 떨어져 들어오고, 넘어가는 의자는 머리 위로 공중제비를 돌며 넘어 같은 방향으로 가다가 앞에 칸이 없으면 계단 밖으로 떨어진다.
+  // 움직임: 바퀴가 돌고, 내려가는 쪽으로 기울고, 칸에 내려앉을 때 눌리고(가로로 퍼짐) 공중에서는 살짝 늘어난다
   const r = run, s = p.side;
   if (r.time < p.spawnT) return;
   const u = clamp((r.time - p.spawnT) / Math.max(0.01, p.impactT - p.spawnT), 0, 1);
   const dx = Math.abs(stairX(r.steps + 1) - stairX(r.steps)) || CONFIG.stepW;
-  const line = function (j) { return [160 + (stairX(r.steps) + s * j * dx - r.camX), PLAYER_Y + (-(r.steps + j) * CONFIG.stepH - r.camY) - 7]; };   // 내 칸에서 j칸 위(음수면 아래) 같은 줄, 바퀴가 칸 윗면에 닿는 자리
-  let up = 0; while (up < 5 && dirAt(r.steps + up) === s) up++;            // 위로 같은 방향으로 이어진 칸 수
-  let down = 0; while (down < 8 && r.steps - 1 - down >= 0 && dirAt(r.steps - 1 - down) === s) down++;   // 아래로 이어진 칸 수
-  const roll = function (j, j0) {                                          // 칸 위면 두 칸씩 튀고, 칸이 없는 높이(층참 위)에서는 날아 떨어진다
+  const line = function (j) { return [160 + (stairX(r.steps) + s * j * dx - r.camX), PLAYER_Y + (-(r.steps + j) * CONFIG.stepH - r.camY) - 7]; };
+  let up = 0; while (up < 5 && dirAt(r.steps + up) === s) up++;
+  let down = 0; while (down < 8 && r.steps - 1 - down >= 0 && dirAt(r.steps - 1 - down) === s) down++;
+  const roll = function (j, j0) {                                          // [x, y, 칸 위로 뜬 높이]
     const q = line(j);
-    if (j > up) return [q[0], q[1] - (j - up) * 7];
-    const g = (j0 - j) / 2; return [q[0], q[1] - Math.sin((g - Math.floor(g)) * Math.PI) * 9];
+    if (j > up) return [q[0], q[1] - (j - up) * 7, 9];
+    const g = (j0 - j) / 2, h = Math.sin((g - Math.floor(g)) * Math.PI) * 9; return [q[0], q[1] - h, h];
   };
-  let x, y;
+  let x, y, h, rot = -s * 0.32, spin = null;                               // rot: 내려가는 쪽으로 기울기
   if (p.over && (u > 0.8 || p.passed)) {
     const a0 = roll(1.2, 5), b0 = line(-2);
-    if (r.time < p.impactT) { const v = (u - 0.8) / 0.2; x = lerp(a0[0], b0[0], v); y = lerp(a0[1], b0[1], v) - Math.sin(v * Math.PI) * 38; }   // 머리 위를 넘는다
+    if (r.time < p.impactT) { const v = (u - 0.8) / 0.2; x = lerp(a0[0], b0[0], v); y = lerp(a0[1], b0[1], v) - Math.sin(v * Math.PI) * 38; h = 9; spin = -s * v * Math.PI * 2; }   // 머리 위로 공중제비
     else {
       const e = r.time - p.impactT, j = -2 - e * 6;
-      if (-j <= down) { const g = (-2 - j) / 2, q = line(j); x = q[0]; y = q[1] - Math.sin((g - Math.floor(g)) * Math.PI) * 9; }   // 아래 칸들을 같은 방향으로
-      else { const edge = -Math.max(2, down), te = e - Math.max(0, (Math.max(2, down) - 2) / 6), q = line(edge); x = q[0] - s * dx * 6 * te; y = q[1] - 6 * te + 300 * te * te; }   // 앞에 칸이 없다: 계단 밖으로 떨어진다
+      if (-j <= down) { const g = (-2 - j) / 2, q = line(j); h = Math.sin((g - Math.floor(g)) * Math.PI) * 9; x = q[0]; y = q[1] - h; }
+      else { const edge = -Math.max(2, down), te = e - Math.max(0, (Math.max(2, down) - 2) / 6), q = line(edge); x = q[0] - s * dx * 6 * te; y = q[1] - 6 * te + 300 * te * te; h = 9; spin = -s * te * 12; }   // 계단 밖으로 떨어지며 돈다
     }
   } else {
-    const j = lerp(5, p.over ? 1.2 : 0.35, p.over ? u / 0.8 : u), q = roll(j, 5); x = q[0]; y = q[1];
+    const j = lerp(5, p.over ? 1.2 : 0.35, p.over ? u / 0.8 : u), q = roll(j, 5); x = q[0]; y = q[1]; h = q[2];
   }
-  drawChair(x, y, -s * (r.time - p.spawnT) * 9);
+  const ground = h < 1.2;
+  if (spin !== null) rot = spin; else rot += -s * 0.25 * Math.min(1, h / 9);   // 공중에서는 더 기운다
+  drawChair(x, y, rot, { t: r.time - p.spawnT, flip: s > 0, sx: ground ? 1.14 : 0.94, sy: ground ? 0.84 : 1.06 });   // 내려앉을 때 눌리고, 공중에서는 늘어난다
   if (r.time >= p.spawnT && showMarks() && !p.passed) {
     const wx = clamp(x, 8, W - 8), wy = y - 20;
     const wk = drawSprite('warning', 'default', 'blink', r.time - p.spawnT, wx, wy, { anchor: 'c', fw: 8, fh: 12, nofb: true });
@@ -1643,7 +1648,10 @@ function drawEnvelopes(p, px) {   // 편지 3연발: 같은 쪽에서 envelopeGa
     const t0 = p.spawnT + k * CONFIG.envelopeGap;
     if (r.time < t0) continue;
     const u = clamp((r.time - t0) / dur, 0, 1);
-    drawEnvelope(lerp(x0, tx, u), ty - Math.sin(u * Math.PI) * 14 + (k % 2) * 3);
+    const ex = lerp(x0, tx, u), ey = ty - Math.sin(u * Math.PI) * 14 + (k % 2) * 3, et = r.time - t0;
+    for (let j = 1; j <= 3; j++) rect(ex + p.side * (4 + j * 4) - 1, ey - 1 + (j % 2) * 2, 4, 1, '#E8E6DF', 0.42 - j * 0.12);   // 뒤에 남는 바람 줄
+    if (!drawSprite('obstacles', 'envelope', 'fly', et + k * 0.13, ex, ey, { anchor: 'c', fw: 12, fh: 12, nofb: true, rot: Math.sin(et * 14 + k) * 0.22, flip: p.side > 0 }))
+      drawEnvelope(ex, ey);                                                // 돌며 펄럭이고 흔들린다
   }
   if (r.time >= p.spawnT && showMarks()) {
     const u = clamp((r.time - p.spawnT) / dur, 0, 1), wx = clamp(lerp(x0, tx, u), 8, W - 8), wy = ty - 28;

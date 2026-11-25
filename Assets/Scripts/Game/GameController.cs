@@ -1029,8 +1029,9 @@ namespace Stairs.Game
             Rect(-6, -1, 12, 3, "#3A3D43"); Rect(-6, -3, 10, 2, "#9AA0A8"); Rect(3, -3, 3, 1, "#A13D3D"); Rect(-6, 2, 12, 1, "#2A2C31");
             cv.Restore();
         }
-        void DrawChair(double x, double y, double rot)
-        {   // 사무실 의자: 남색 등받이·앉는 판, 은색 기둥, 바퀴 (웹 drawChair)
+        void DrawChair(double x, double y, double rot, double t = 0, bool flip = false, double sx = 1, double sy = 1)
+        {   // 사무실 의자 (obstacles.png chair, 바퀴가 돈다). 그림이 없으면 사각형으로 (웹 drawChair)
+            if (DrawSprite("obstacles", "chair", "roll", t, x, y - 0.5, new SO { anchor = "c", fw = 16, fh = 16, nofb = true, rot = rot, sx = sx, sy = sy, flip = flip })) return;
             cv.Save(); cv.Translate(JsRound(x), JsRound(y)); cv.Rotate((float)rot);
             Rect(-5, -11, 3, 9, "#3A4A6A"); Rect(-5, -3, 10, 3, "#3A4A6A"); Rect(-4, -2, 8, 1, "#4E6290");
             Rect(-1, 0, 2, 4, "#9AA0A8"); Rect(-5, 4, 10, 1, "#2A2C31"); Rect(-5, 5, 2, 2, "#1E1F22"); Rect(3, 5, 2, 2, "#1E1F22");
@@ -1043,8 +1044,8 @@ namespace Stairs.Game
             if (!wk && Math.Floor(time * 8) % 2 == 0) { Rect(wx - 5, y - 7, 10, 14, PalRed); Txt("!", wx, y, T(10, "center", "middle", true, shadow: false)); }
         }
         void DrawRollingChair(Threat p, double ppx)
-        {   // 굴러오는 의자: 방향을 바꾸지 않고 지금 계단 줄을 따라 곧게 두 칸씩 튀며 굴러 내려온다 (웹 drawRollingChair).
-            // 위쪽에 이어진 칸이 짧으면 그 위 층참에서 날아 떨어져 들어오고, 넘어가는 의자는 머리 위를 넘어 같은 방향으로 가다가 앞에 칸이 없으면 계단 밖으로 떨어진다
+        {   // 굴러오는 의자 (웹 drawRollingChair): 지금 계단 줄을 따라 곧게 두 칸씩 튀며 굴러 내려오고, 넘어가는 의자는 공중제비를 돌며 넘어 앞에 칸이 없으면 계단 밖으로 떨어진다.
+            // 움직임: 바퀴가 돌고, 내려가는 쪽으로 기울고, 내려앉을 때 눌리고 공중에서는 살짝 늘어난다
             var r = run; int s = p.side;
             if (r.time < p.spawnT) return;
             double u = Clamp((r.time - p.spawnT) / Math.Max(0.01, p.impactT - p.spawnT), 0, 1);
@@ -1052,26 +1053,28 @@ namespace Stairs.Game
             Func<double, (double x, double y)> line = j => (160 + (r.Stairs.StairX(r.steps) + s * j * dx - r.camX), PLAYER_Y + (-(r.steps + j) * D(C.stepH) - r.camY) - 7);
             int up = 0; while (up < 5 && r.Stairs.DirAt(r.steps + up) == s) up++;
             int down = 0; while (down < 8 && r.steps - 1 - down >= 0 && r.Stairs.DirAt(r.steps - 1 - down) == s) down++;
-            Func<double, double, (double x, double y)> roll = (j, j0) =>
-            {   // 칸 위면 두 칸씩 튀고, 칸이 없는 높이(층참 위)에서는 날아 떨어진다
+            Func<double, double, (double x, double y, double h)> roll = (j, j0) =>
+            {
                 var q = line(j);
-                if (j > up) return (q.x, q.y - (j - up) * 7);
-                double g = (j0 - j) / 2; return (q.x, q.y - Math.Sin((g - Math.Floor(g)) * Math.PI) * 9);
+                if (j > up) return (q.x, q.y - (j - up) * 7, 9);
+                double g0 = (j0 - j) / 2, hh = Math.Sin((g0 - Math.Floor(g0)) * Math.PI) * 9; return (q.x, q.y - hh, hh);
             };
-            double x, y;
+            double x, y, h, rot = -s * 0.32; double? spin = null;
             if (p.over && (u > 0.8 || p.passed))
             {
                 var a0 = roll(1.2, 5); var b0 = line(-2);
-                if (r.time < p.impactT) { double v = (u - 0.8) / 0.2; x = Lerp(a0.x, b0.x, v); y = Lerp(a0.y, b0.y, v) - Math.Sin(v * Math.PI) * 38; }   // 머리 위를 넘는다
+                if (r.time < p.impactT) { double v = (u - 0.8) / 0.2; x = Lerp(a0.x, b0.x, v); y = Lerp(a0.y, b0.y, v) - Math.Sin(v * Math.PI) * 38; h = 9; spin = -s * v * Math.PI * 2; }   // 머리 위로 공중제비
                 else
                 {
                     double e = r.time - p.impactT, j = -2 - e * 6;
-                    if (-j <= down) { double g = (-2 - j) / 2; var q = line(j); x = q.x; y = q.y - Math.Sin((g - Math.Floor(g)) * Math.PI) * 9; }   // 아래 칸들을 같은 방향으로
-                    else { int edge = Math.Max(2, down); double te = e - Math.Max(0, (edge - 2) / 6.0); var q = line(-edge); x = q.x - s * dx * 6 * te; y = q.y - 6 * te + 300 * te * te; }   // 앞에 칸이 없다: 계단 밖으로 떨어진다
+                    if (-j <= down) { double g0 = (-2 - j) / 2; var q = line(j); h = Math.Sin((g0 - Math.Floor(g0)) * Math.PI) * 9; x = q.x; y = q.y - h; }
+                    else { int edge = Math.Max(2, down); double te = e - Math.Max(0, (edge - 2) / 6.0); var q = line(-edge); x = q.x - s * dx * 6 * te; y = q.y - 6 * te + 300 * te * te; h = 9; spin = -s * te * 12; }   // 계단 밖으로 떨어지며 돈다
                 }
             }
-            else { double j = Lerp(5, p.over ? 1.2 : 0.35, p.over ? u / 0.8 : u); var q = roll(j, 5); x = q.x; y = q.y; }
-            DrawChair(x, y, -s * (r.time - p.spawnT) * 9);
+            else { double j = Lerp(5, p.over ? 1.2 : 0.35, p.over ? u / 0.8 : u); var q = roll(j, 5); x = q.x; y = q.y; h = q.h; }
+            bool ground = h < 1.2;
+            rot = spin ?? rot + -s * 0.25 * Math.Min(1, h / 9);
+            DrawChair(x, y, rot, r.time - p.spawnT, s > 0, ground ? 1.14 : 0.94, ground ? 0.84 : 1.06);   // 내려앉을 때 눌리고, 공중에서는 늘어난다
             if (ShowMarks() && !p.passed) DrawWarnMark(x, y - 20, p);
         }
         void DrawEnvelope(double x, double y)
@@ -1088,7 +1091,10 @@ namespace Stairs.Game
                 double t0 = p.spawnT + k * gap;
                 if (r.time < t0) continue;
                 double u = Clamp((r.time - t0) / dur, 0, 1);
-                DrawEnvelope(Lerp(x0, tx, u), ty - Math.Sin(u * Math.PI) * 14 + (k % 2) * 3);
+                double ex = Lerp(x0, tx, u), ey = ty - Math.Sin(u * Math.PI) * 14 + (k % 2) * 3, et = r.time - t0;
+                for (int j = 1; j <= 3; j++) Rect(ex + p.side * (4 + j * 4) - 1, ey - 1 + (j % 2) * 2, 4, 1, "#E8E6DF", 0.42 - j * 0.12);   // 뒤에 남는 바람 줄
+                if (!DrawSprite("obstacles", "envelope", "fly", et + k * 0.13, ex, ey, new SO { anchor = "c", fw = 12, fh = 12, nofb = true, rot = Math.Sin(et * 14 + k) * 0.22, flip = p.side > 0 }))
+                    DrawEnvelope(ex, ey);                                          // 돌며 펄럭이고 흔들린다
             }
             if (r.time >= p.spawnT && ShowMarks())
             {

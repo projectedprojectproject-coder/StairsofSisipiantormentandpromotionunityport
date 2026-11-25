@@ -26,8 +26,8 @@ def comps(m):
                 sizes.append(n)
     return sizes
 GROUNDED = {'idle', 'walk', 'climb', 'climb_r', 'climb_l', 'step', 'proud', 'parry_left', 'parry_right', 'parry_left2', 'parry_right2', 'parry_left3', 'parry_right3',
-            'parry_hit_left', 'parry_hit_right', 'parry_hit_left2', 'parry_hit_right2', 'parry_hit_left3', 'parry_hit_right3', 'coffee', 'phone', 'attack', 'leave', 'hit'}
-for sid in ('player', 'rival', 'staff', 'commuter'):
+            'parry_hit_left', 'parry_hit_right', 'parry_hit_left2', 'parry_hit_right2', 'parry_hit_left3', 'parry_hit_right3', 'coffee', 'phone', 'attack', 'leave', 'hit', 'roll'}
+for sid in ('player', 'rival', 'staff', 'commuter', 'obstacles'):
     sp = d['sprites'].get(sid)
     if not sp: continue
     img = np.array(Image.open(f"{A}/{sp['file']}").convert('RGBA')); fw, fh = sp['frame_w'], sp['frame_h']
