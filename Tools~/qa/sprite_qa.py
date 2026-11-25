@@ -17,11 +17,12 @@ from edge_close import is_closed
 A = sys.argv[1]
 d = json.load(open(f"{A}/sprite_definition.json", encoding='utf-8'))
 issues, report = [], []
-MAX_COLORS = 128                       # 시트 하나의 색 상한 (명암 단계 포함)
+K = d.get('pixel_scale', 2) / 2   # 밀도 배율 (4배 밀도면 2): 픽셀 기준 한계를 늘린다
+MAX_COLORS = 128                       # 시트 한 행의 색 상한 (16비트). 32비트(4배 밀도)는 4배까지 (부드러운 명암 단계)
 PEOPLE = {'player', 'rival', 'staff', 'commuter'}
 HEIGHT_ANIMS = ('idle', 'walk', 'climb', 'climb_r', 'climb_l')
 ROWS_FOR = {'obstacles': {'roll': [0], 'fly': [1], 'snap': [2], 'flap': [3]}}
-GROUND_OBJ = {'props'}             # 바닥에 놓인 소품
+GROUND_OBJ = {'props', 'cs_hero', 'cs_hand'}   # 바닥에 놓인 소품, 컷신 사람(발)·손(소매는 화면 밖에서 들어온다)
 EDGE_OK = {'stairs', 'hud_icons'}      # 계단 타일은 이웃 타일과 이어지도록 가장자리까지 그린다
 
 
@@ -43,7 +44,7 @@ for sid, sp in d['sprites'].items():
     for r in range(rows):   # 색 수는 행(옷 색 바꿈)마다 센다
         band = img[r * fh:(r + 1) * fh]; op = band[band[..., 3] > 0][:, :3]
         nr = len(np.unique(op.view([('', op.dtype)] * 3))) if len(op) else 0; ncol = max(ncol, nr)
-        if nr > MAX_COLORS: issues.append(f"{sid} 행{r}: 색 {nr}개 (상한 {MAX_COLORS})")
+        if nr > MAX_COLORS * K * K: issues.append(f"{sid} 행{r}: 색 {nr}개 (상한 {int(MAX_COLORS * K * K)})")
     used = {}
     for an, anim in sp.get('animations', {}).items():
         for r in (ROWS_FOR.get(sid, {}).get(an) or range(rows)):
@@ -64,14 +65,14 @@ for sid, sp in d['sprites'].items():
                 bad = {k: v for k, v in open_.items() if v}
                 if bad: issues.append(f"{sid} 행{r} 칸{c} ({'/'.join(used[(r, c)])}): 테두리에서 잘림(외곽선 없음) " + ', '.join(f'{k} {v}' for k, v in bad.items()))
             st = strays(m) if (sid in PEOPLE or sid == 'obstacles') else 0   # 김·반짝이 같은 떨어진 점은 물건에서는 정상
-            if st > 1: issues.append(f"{sid} 행{r} 칸{c}: 떨어진 점 {st}개")
+            if st > 1 * K: issues.append(f"{sid} 행{r} 칸{c}: 떨어진 점 {st}개")
             if sid in PEOPLE:
                 ys = np.nonzero(m)[0]
                 for an in used[(r, c)]:
                     if an in HEIGHT_ANIMS: heights.setdefault(r, []).append((an, c, int(ys.max() - ys.min() + 1)))
     for r, hs in heights.items():
         lo, hi = min(h for _, _, h in hs), max(h for _, _, h in hs)
-        if hi - lo > 5: issues.append(f"{sid} 행{r}: 서 있기·걷기·오르기 키가 {lo}~{hi}px로 다름 " + str(sorted(hs, key=lambda t: t[2])[:2] + sorted(hs, key=lambda t: t[2])[-1:]))
+        if hi - lo > 5 * K: issues.append(f"{sid} 행{r}: 서 있기·걷기·오르기 키가 {lo}~{hi}px로 다름 " + str(sorted(hs, key=lambda t: t[2])[:2] + sorted(hs, key=lambda t: t[2])[-1:]))
     report.append(f"{sid}: {cols}x{rows}칸, 쓰는 칸 {len(used)}, 색 {ncol}")
 
 for iid, im in (d.get('images') or {}).items():

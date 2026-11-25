@@ -53,6 +53,15 @@ namespace Stairs.Game
                 Finish(); yield break;
             }
             Line("screen " + Screen.width + "x" + Screen.height + ", catalog " + (gc.catalog ? "ok" : "없음") + ", font " + gc.FontName);
+            // 컷신: 켤 때 인트로가 도는지 보고, 세 컷신의 정해진 순간을 멈춰 찍는다 (web_shots.py: ?cs=..&cst=..&csfreeze=1)
+            yield return new WaitForSecondsRealtime(0.5f);
+            Line("켤 때 컷신: " + (gc.CutsceneId ?? "없음") + " " + gc.CutsceneTime.ToString("0.0") + "s");
+            foreach (var (id, t) in CsMoments)
+            {
+                gc.FreezeCutscene(id, t); yield return new WaitForSecondsRealtime(0.25f);
+                yield return Shot("00_cs_" + id + "_" + t.ToString("00.0", System.Globalization.CultureInfo.InvariantCulture));
+            }
+            gc.SkipCutscene();   // → 타이틀
             yield return new WaitForSecondsRealtime(1.5f); yield return Shot("01_title");
             Line(AudioReport(gc, "타이틀"));
             gc.OpenSettings(); yield return new WaitForSecondsRealtime(0.3f); yield return Shot("02_settings");
@@ -124,6 +133,12 @@ namespace Stairs.Game
         }
 
         // 장면마다 보기 좋은 순간 (초). 순서는 GameController.Demos, web_shots.py와 같다
+        static readonly (string, double)[] CsMoments =
+        {
+            ("intro", 1.5), ("intro", 5.5), ("intro", 8.0), ("intro", 10.0), ("intro", 16.0), ("intro", 19.0),
+            ("runstart", 1.0), ("runstart", 3.8), ("runstart", 5.7),
+            ("ending", 1.5), ("ending", 4.6), ("ending", 7.0), ("ending", 7.6), ("ending", 9.6), ("ending", 12.5), ("ending", 14.6), ("ending", 16.5),
+        };
         static readonly float[] DemoMoments = { 1.3f, 1.45f, 1.9f, 1.5f, 1.55f, 1.5f, 1.5f, 1.9f, 1.5f, 2.1f, 1.85f, 1.9f, 1.4f, 1.55f, 1.3f, 1.2f, 1.3f, 2.2f, 1.6f, 1.6f, 2.1f, 1.0f, 1.65f, 0.85f };
 
         IEnumerator Steps(GameController gc, int n) => Until(() => gc.run == null || gc.run.Ended || gc.run.steps >= n, 90);

@@ -249,3 +249,12 @@ uGUI로 비슷하게 그리던 화면을 버리고, 웹 `game.js`의 그리기·
 - 상사의 눈 레이저 띠가 경쟁 사원 몸(화면 안)에 걸쳐 있는 동안 경쟁 사원이 움직이면(걷기·오르기) 들켜서 실격: 그 자리에 굳어 붉게 깜박이며 사라지고 덤 점수 (`RunSimulation.RivalGazeCaught`, 웹 `rivalGazeCaught`, 사건 `rival gaze`). 장애물 보기 24장면 ('경쟁 사원과 상사의 눈').
 - `Tools~/qa/run_all.py`: 움직임·상호작용, 스프라이트, 애니메이션, Unity EditMode 테스트를 한 번에. 웹 판 `tools/qa/run_all.py`는 여기에 pytest와 파이프라인 QA 에이전트(Developer QA, Designer QA, Publisher Playwright, Screens QA)까지 돈다.
 - `PlayNow_Windows/`: 저장소를 받자마자 할 수 있는 Windows 실행 파일.
+
+## 32비트 스프라이트, 팔·손 해부학, 컷신, 로비로 버튼 (2026-11-25)
+
+- 스프라이트를 4배 밀도로 (`pixel_scale` 4): `Tools~/sprites/upgrade32.py` (Scale2x, 1px 외곽선, 8단계 부피 명암·림 라이트). 그리기는 `PX`(= pixel_scale)로 나누므로 코드는 그대로. 가져오기는 `maxTextureSize` 8192 (넓은 시트가 줄지 않게).
+- 팔·손: 인형 프레임에 남아 있던 옷자락 모서리의 손 조각(몸통에 박힌 팔)을 지우고 막기 2의 가슴에 붙은 손을 고쳤다 (`Tools~/sprites/fix_arms.py`). `Tools~/qa/anatomy_qa.py`: 244개 → 0개.
+- 컷신 (웹과 같은 대본·그림·소리): 켤 때 인트로, 보통 모드 새 판 시작(건너뛰기), 100층 엔딩. 재생기는 `GameController.Cutscenes.cs`(웹 playCutscene/updateCutscene/drawCutscene을 한 줄씩), 대본 `CutsceneData.cs`는 `python Tools~/cutscenes/gen_cs_data.py WebReference/game.js Assets/Scripts/Game/CutsceneData.cs`로 웹 대본에서 만든다. 소리 효과는 자막으로 쓰지 않는다.
+- 플레이테스트는 세 컷신의 17순간을 멈춰 찍고(`00_cs_*`, web_shots.py와 같은 순간) 인트로를 건너뛴 뒤 이어 간다. `-nointro`.
+- 결과 화면 버튼: 다시 하기 · 기록 공유 · 로비로.
+

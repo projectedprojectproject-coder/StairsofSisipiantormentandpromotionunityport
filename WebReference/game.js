@@ -220,11 +220,14 @@ const DEF = window.SPRITE_DEF || null;
 if (!DEF) assetErrors.push('SPRITE_DEF:missing');
 const D = DEF || { sprites: {}, images: {}, sounds: {} };
 const ASSET_DIR = (D.assets_dir || 'assets').replace(/\/$/, '');
-const SPRITE_IDS = ['player', 'rival', 'projectiles', 'warning', 'stairs', 'hud_icons', 'props', 'commuter', 'sticky', 'staff', 'obstacles'];
-const IMAGE_IDS = ['bg_zone1', 'bg_zone2', 'bg_zone3', 'bg_zone4', 'bg_zone5', 'title_bg', 'logo', 'bg_lobby', 'bg_result', 'bg_practice'];
+const SPRITE_IDS = ['player', 'rival', 'projectiles', 'warning', 'stairs', 'hud_icons', 'props', 'commuter', 'sticky', 'staff', 'obstacles',
+                    'cs_hero', 'cs_paper', 'cs_fx', 'cs_boom', 'cs_button', 'cs_hand'];   // cs_*: 컷신 (2배 밀도, tools/cutscenes/make_cutscenes.py)
+const IMAGE_IDS = ['bg_zone1', 'bg_zone2', 'bg_zone3', 'bg_zone4', 'bg_zone5', 'title_bg', 'logo', 'bg_lobby', 'bg_result', 'bg_practice',
+                   'cs_office_night', 'cs_office_fg', 'cs_desk_close', 'cs_desk_morning', 'cs_rage_bg', 'cs_window_tall', 'cs_ceo_room', 'cs_ceo_fg', 'cs_button_close', 'cs_tower_night', 'cs_office_morning', 'cs_office_morning_fg'];
 const SOUND_IDS = ['bgm_loop', 'bgm_loop_tense', 'amb_office', 'sfx_step', 'sfx_parry', 'sfx_parry_perfect', 'sfx_hit', 'sfx_warning', 'sfx_promote', 'sfx_gameover', 'sfx_click', 'sfx_phone_ring', 'sfx_cue_clipboard', 'sfx_cue_rival', 'sfx_cue_paper', 'sfx_monitor_shatter', 'sfx_light_flicker', 'sfx_cue_coffee', 'sfx_stair_crack', 'sfx_camera_flash', 'sfx_cue_suitcase', 'bgm_stage1', 'bgm_stage2', 'bgm_stage3', 'bgm_stage4', 'bgm_stage5', 'sfx_electric',
                    'sfx_cue_stapler', 'sfx_cue_sticky', 'sfx_cue_airplane', 'sfx_gaze_warn', 'sfx_gaze_laser', 'sfx_vanish', 'sfx_escalator',
-                   'sfx_cue_chair', 'sfx_chair_hop', 'sfx_cue_envelope'];   // 새 장애물마다 다른 소리 (2026-11-25)
+                   'sfx_cue_chair', 'sfx_chair_hop', 'sfx_cue_envelope',   // 새 장애물마다 다른 소리 (2026-11-25)
+                   'sfx_cs_type', 'sfx_cs_slam', 'sfx_cs_stamp', 'sfx_cs_rage', 'sfx_cs_whoosh', 'sfx_cs_button', 'sfx_cs_boom', 'sfx_cs_alarm', 'sfx_cs_title'];   // 컷신
 const A = { sprites: {}, images: {} };
 let pending = 0;
 let assetsReady = false;
@@ -367,7 +370,7 @@ let audioKey = null, audioSyncT = 0;
 // 구간(20층)마다 다른 음악: 1~20 사무실, 21~40 개방형, 41~60 회의실, 61~80 임원층, 81~100 CEO실 (없으면 기존 루프)
 const STAGE_BGM = ['bgm_stage1', 'bgm_stage2', 'bgm_stage3', 'bgm_stage4', 'bgm_stage5'];
 function desiredBgm() {
-  if (screen === 'result') return null;
+  if (screen === 'result' || screen === 'cutscene') return null;   // 컷신은 효과음과 사무실 소리만
   if ((screen === 'play' || screen === 'pause') && run) {
     const id = STAGE_BGM[Math.min(4, Math.floor((run.floor - 1) / 20))];   // 배경 구간(61~99층 한 구간)과 달리 음악은 20층마다
     if (D.sounds && D.sounds[id]) return id;
@@ -423,6 +426,7 @@ function writeSave() {
  * 상태
  * ------------------------------------------------------------------- */
 let screen = 'title';
+let cs = null;   // 재생 중인 컷신 { id, t, onEnd, fired }
 let time = 0;
 let focus = 0;
 let run = null;
@@ -1020,8 +1024,12 @@ function finishRun() {
     score: r.score, maxMult: r.maxMult, maxCombo: r.maxCombo, newBest: newBest,
     tip: r.ended.cause === 'cracked' ? 'cracked' : r.ended.cause === 'shock' ? 'shock' : r.ended.cause === 'days' ? 'days' : (r.lastKind || 'clipboard'), t0: time, stamped: false,
   };
-  screen = 'result'; focus = 0; resultLock = 0.5;
   log('result ' + kind);
+  if (kind === 'promote' && r.mode === 'normal' && r.floor >= CONFIG.finalFloor) {   // 100층 엔딩: 버튼을 누르고… 책상에서 깨어난다 (꿈)
+    playCutscene('ending', function () { screen = 'result'; focus = 0; resultLock = 0.5; result.t0 = time; });
+    return;
+  }
+  screen = 'result'; focus = 0; resultLock = 0.5;
 }
 
 /* ---------------------------------------------------------------------
@@ -1092,7 +1100,7 @@ function getButtons() {
       ];
     case 'lobby':
       return [
-        Object.assign(btn('work', '업무 시작', 104, 150, 112, 18, function () { startRun('normal'); }, 10), { tone: 'red' }),   // 05-2 요소 4 (ESC: 타이틀로)
+        Object.assign(btn('work', '업무 시작', 104, 150, 112, 18, function () { startNormal(); }, 10), { tone: 'red' }),   // 05-2 요소 4 (ESC: 타이틀로)
         btn('endless', '무한 모드', 224, 150, 84, 18, function () { startRun('endless'); }, 8),
         btn('practice', '연습 모드', 12, 150, 84, 18, function () { startRun('practice'); }, 8),
         Object.assign(btn('settings', '', 226, 5, 18, 18, openSettings), { icon: 'gear' }),   // 설정 (층 명판과 D-30 사이)
@@ -1106,8 +1114,9 @@ function getButtons() {
       ];
     case 'result':
       return [
-        Object.assign(btn('again', result && result.kind === 'promote' ? '1층부터 다시' : '다시 하기', 96, 155, 62, 16, function () { startRun(result ? result.mode : 'normal'); }, 8), { tone: 'red' }),   // 05-5 요소 5
-        btn('share', '기록 공유', 166, 155, 62, 16, shareResult, 8),                                                                                     // 요소 2
+        Object.assign(btn('again', result && result.kind === 'promote' ? '1층부터 다시' : '다시 하기', 63, 155, 62, 16, function () { if (!result || result.mode === 'normal') startNormal(); else startRun(result.mode); }, 8), { tone: 'red' }),   // 05-5 요소 5
+        btn('share', '기록 공유', 129, 155, 62, 16, shareResult, 8),                                                                                     // 요소 2
+        btn('lobby', '로비로', 195, 155, 62, 16, function () { screen = 'lobby'; focus = 0; }, 8),                                                       // 로비로 돌아가기 (ESC와 같다)
         Object.assign(btn('settings', '', 298, 4, 18, 18, openSettings), { icon: 'gear' }),   // 설정 (장애물 보기도 여기서)
       ];
   }
@@ -1128,6 +1137,7 @@ window.addEventListener('keydown', function (e) {
   const c = e.code;
   if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Space', 'Tab'].indexOf(c) >= 0) e.preventDefault();
   if (e.repeat) return;
+  if (screen === 'cutscene') { if (c === 'Enter' || c === 'NumpadEnter' || c === 'Escape' || c === 'Space') skipCutscene(); return; }
 
   if (c === 'Escape') {
     if (demo) { closeDemo(); return; }
@@ -1175,6 +1185,7 @@ canvas.addEventListener('mousemove', function (e) {
 canvas.addEventListener('mousedown', function (e) {
   unlockAudio();
   canvas.focus();
+  if (screen === 'cutscene') { skipCutscene(); return; }
   if (!menuMode()) return;
   const i = hitButton(logicalPos(e));
   if (i >= 0) {
@@ -2060,7 +2071,7 @@ function drawResult() {
   }
   // 2, 5 버튼
   drawButtons();
-  if (time < toastUntil) txt(toastText, 197, 174, { size: 6, align: 'center', color: PAL.green });
+  if (time < toastUntil) txt(toastText, 160, 174, { size: 6, align: 'center', color: PAL.green });
 }
 function shareResult() {
   if (!result) return;
@@ -2093,12 +2104,211 @@ function shareResult() {
 }
 
 /* ---------------------------------------------------------------------
+ * 컷신 (인트로 · 새 판 시작 · 100층 엔딩)
+ *  대본은 데이터: 장면(shot)마다 길이, 배경(+앞 배경), 카메라 키, 배우(스프라이트) 키, 자막, 효과(흔들림·번쩍·소리·집중선·파편), 제목 카드.
+ *  키 = [t, 프레임(숫자 또는 [프레임들]), x, y, 가로 배율, 세로 배율, 회전, 이징]. 다음 키까지 이징으로 옮겨 가고 프레임은 그 키의 것.
+ *  움직임은 피자 타워식: 예비 동작(움츠림) → 'b'(넘쳤다 돌아오는) 팝 → 충격(번쩍·흔들림) → 눌림. 그림은 2배 밀도라 배율 2로 그린다.
+ * ------------------------------------------------------------------- */
+const CS_EASE = {
+  l: function (u) { return u; }, o: function (u) { return 1 - Math.pow(1 - u, 3); }, i: function (u) { return u * u * u; },
+  io: function (u) { return u < 0.5 ? 4 * u * u * u : 1 - Math.pow(-2 * u + 2, 3) / 2; },
+  b: function (u) { const c = 1.9; return 1 + (c + 1) * Math.pow(u - 1, 3) + c * Math.pow(u - 1, 2); },
+};
+const CUTSCENES = {
+  intro: { shots: [
+    { d: 4.6, bg: ['cs_office_night', 320, 180], fg: 'cs_office_fg', fin: 0.6,
+      cam: [[0, 160, 90, 1.0], [4.6, 170, 94, 1.12, 'io']],
+      act: [{ s: 'cs_hero', z: 1.7, fps: 3, k: [[0, [0, 1], 240, 214, 1, 1, 0], [3.5, 2, 240, 215, 1.04, 0.96, 0, 'o'], [3.9, 2, 240, 215, 1, 1, 0, 'o']] }],
+      cap: [[0.5, 2.4, '명문대, 자격증, 인턴 세 번. 겨우 들어온 대기업.', 'n'], [2.5, 4.5, '오늘도 야근이다.', 'n']],
+      fx: [[0.3, 'sfx', 'sfx_cs_type'], [1.7, 'sfx', 'sfx_cs_type'], [3.0, 'sfx', 'sfx_cs_type']] },
+    { d: 3.8, bg: ['cs_desk_close', 320, 180],
+      cam: [[0, 160, 90, 1.0], [3.8, 160, 96, 1.06, 'o']],
+      act: [{ s: 'cs_paper', k: [[0, 0, 160, -40, 1.5, 1.5, -0.3], [0.45, 0, 160, 166, 1, 1, -0.04, 'i'], [0.52, 0, 160, 166, 1.12, 0.82, -0.04, 'l'], [0.68, 0, 160, 166, 0.96, 1.05, -0.04, 'o'],
+                                    [0.82, 0, 160, 166, 1, 1, -0.04, 'o'], [1.6, 1, 160, 166, 1.05, 0.95, -0.04, 'l'], [1.78, 1, 160, 166, 1, 1, -0.04, 'b']] }],
+      cap: [[0.9, 3.7, '그런데 책상 위에 떨어진 통보 한 장.', 'n']],
+      fx: [[0.0, 'sfx', 'sfx_cs_whoosh'], [0.45, 'sfx', 'sfx_cs_slam'], [0.45, 'shake', 3, 0.35], [0.45, 'flash', 0.08, '#FFFFFF'], [1.6, 'sfx', 'sfx_cs_stamp'], [1.6, 'shake', 2, 0.2]] },
+    { d: 3.6, bg: ['cs_rage_bg', 320, 180],
+      cam: [[0, 160, 90, 1.0], [3.6, 160, 90, 1.08, 'l']],
+      act: [{ s: 'cs_hero', z: 1.45, fps: 12, k: [[0, 7, 160, 214, 1.04, 0.94, 0], [0.5, 7, 160, 214, 1.1, 0.86, 0, 'o'], [0.62, 8, 160, 214, 0.9, 1.14, 0, 'l'], [0.82, 8, 160, 214, 1, 1, 0, 'b'], [0.9, [8, 9], 160, 214, 1, 1, 0, 'l']] },
+            { s: 'cs_fx', fps: 4, k: [[0.7, [0, 1], 184, 116, 1, 1, 0], [0.8, [0, 1], 184, 116, 1.2, 1.2, 0, 'b']] },
+            { s: 'cs_fx', fps: 6, k: [[0.9, [2, 3, 4], 144, 92, 1, 1, 0], [3.6, [2, 3, 4], 132, 44, 1.5, 1.5, 0, 'o']] },
+            { s: 'cs_fx', fps: 6, k: [[1.2, [2, 3, 4], 178, 90, 1, 1, 0], [3.6, [2, 3, 4], 190, 42, 1.5, 1.5, 0, 'o']] }],
+      cap: [[0.7, 3.5, '"30일 안에 승급 못 하면… 잘린다고?!"', 's']],
+      fx: [[0.6, 'sfx', 'sfx_cs_rage'], [0.62, 'shake', 2.5, 2.9], [0.62, 'lines', 2.9], [0.62, 'flash', 0.06, '#FFFFFF']] },
+    { d: 5.6, bg: ['cs_window_tall', 320, 360],
+      cam: [[0, 150, 70, 1.15], [2.4, 160, 250, 1.0, 'io'], [3.0, 174, 262, 1.1, 'o'], [5.6, 184, 266, 1.18, 'l']],   // 오른쪽 끝(320) 넘지 않게
+      act: [{ s: 'cs_hero', z: 1.6, fps: 10, k: [[0, 3, 232, 372, 1, 1, 0], [3.0, 3, 232, 372, 1.04, 0.95, 0, 'l'], [3.08, 4, 232, 372, 0.94, 1.08, 0, 'l'], [3.25, 4, 232, 372, 1, 1, 0, 'b'], [3.3, [4, 5], 232, 372, 1, 1, 0, 'l']] }],
+      cap: [[0.3, 2.3, '"좋아. 꼭대기까지 올라가 주지."', 's'], [3.1, 5.5, '"그리고 이 회사를… 통째로 날려 버리겠어."', 's']],
+      fx: [[3.05, 'sfx', 'sfx_cs_whoosh'], [3.08, 'shake', 2, 0.3], [4.7, 'flash', 0.12, '#FFFFFF'], [4.7, 'shake', 3, 0.4], [4.7, 'sfx', 'sfx_cs_stamp']] },
+    { d: 3.0, card: 'title', fout: 0.5, fx: [[0.25, 'sfx', 'sfx_cs_title'], [0.25, 'shake', 3, 0.3]] },
+  ] },
+  runstart: { shots: [
+    { d: 2.6, bg: ['cs_desk_close', 320, 180], fin: 0.3,
+      cam: [[0, 160, 94, 1.12], [2.6, 160, 96, 1.0, 'o']],
+      act: [{ s: 'cs_paper', k: [[0, 1, 160, 166, 1, 1, -0.04]] }],
+      cap: [[0.2, 2.5, '구조조정까지 30일.', 'n']], fx: [[0.1, 'sfx', 'sfx_cs_whoosh']] },
+    { d: 2.6, bg: ['cs_window_tall', 320, 360],
+      cam: [[0, 174, 262, 1.1], [2.6, 184, 266, 1.18, 'l']],
+      act: [{ s: 'cs_hero', z: 1.6, fps: 10, k: [[0, 3, 232, 372, 1, 1, 0], [0.7, 3, 232, 372, 1.04, 0.95, 0, 'l'], [0.78, 4, 232, 372, 0.94, 1.08, 0, 'l'], [0.95, 4, 232, 372, 1, 1, 0, 'b'], [1.0, [4, 5], 232, 372, 1, 1, 0, 'l']] }],
+      cap: [[0.3, 2.5, '"오늘도 오른다. 꼭대기까지."', 's']], fx: [[0.75, 'sfx', 'sfx_cs_whoosh'], [0.78, 'shake', 2, 0.3]] },
+    { d: 1.3, card: 'go', fout: 0.25, fx: [[0.05, 'sfx', 'sfx_cs_title'], [0.05, 'shake', 3, 0.3], [0.05, 'lines', 1.2], [0.05, 'flash', 0.08, '#FFFFFF']] },
+  ] },
+  ending: { shots: [
+    { d: 3.4, bg: ['cs_ceo_room', 320, 180], fg: 'cs_ceo_fg', fin: 0.6,
+      cam: [[0, 160, 90, 1.0], [3.4, 158, 96, 1.1, 'io']],
+      act: [{ s: 'cs_hero', z: 1.4, fps: 7, k: [[0, [13, 14, 15, 16], 30, 184, 1, 1, 0], [2.9, [13, 14, 15, 16], 146, 184, 1, 1, 0, 'l'], [2.95, 17, 146, 184, 1, 1, 0, 'l']] }],
+      cap: [[0.4, 3.3, '100층. 아무도 와 본 적 없는 꼭대기.', 'n']] },
+    { d: 2.4, bg: ['cs_ceo_room', 320, 180], fg: 'cs_ceo_fg',
+      cam: [[0, 156, 102, 1.3], [2.4, 158, 110, 1.6, 'l']],
+      act: [{ s: 'cs_hero', z: 1.4, k: [[0, 17, 146, 184, 1, 1, 0], [1.1, 17, 146, 184, 1.04, 0.95, 0, 'l'], [1.2, 18, 146, 184, 0.95, 1.07, 0, 'l'], [1.45, 18, 146, 184, 1, 1, 0, 'b']] }],
+      cap: [[0.2, 2.3, '"이걸로… 끝이다."', 's']] },
+    { d: 2.6, bg: ['cs_button_close', 320, 180],
+      cam: [[0, 160, 94, 1.0], [1.4, 160, 104, 1.16, 'i'], [2.6, 160, 104, 1.2, 'l']],
+      act: [{ s: 'cs_button', k: [[0, 0, 160, 150, 1, 1, 0], [1.47, 1, 160, 150, 1.15, 0.8, 0, 'l'], [1.7, 1, 160, 150, 1, 1, 0, 'b']] },
+            { s: 'cs_hand', k: [[0, 0, 160, 124, 1, 1, 0], [0.5, 0, 161, 127, 1, 1, 0, 'io'], [0.95, 1, 160, 100, 1, 1, 0, 'o'], [1.34, 1, 160, 96, 0.96, 1.04, 0, 'l'],
+                                [1.41, 2, 160, 132, 1, 1, 0, 'i'], [1.47, 3, 160, 146, 1.06, 0.92, 0, 'l'], [1.7, 4, 160, 146, 1, 1, 0, 'b']] },
+            { s: 'cs_fx', k: [[1.47, 8, 160, 128, 0.4, 0.4, 0], [1.6, 8, 160, 128, 1.7, 1.7, 0.3, 'o'], [1.8, -1, 160, 128, 1, 1, 0, 'l']] }],
+      fx: [[1.36, 'sfx', 'sfx_cs_whoosh'], [1.36, 'lines', 0.12], [1.47, 'sfx', 'sfx_cs_button'], [1.47, 'flash', 0.06, '#FFFFFF'], [1.53, 'flash', 0.05, '#000000'], [1.47, 'shake', 4, 0.55]] },
+    { d: 3.2, bg: ['cs_tower_night', 320, 180], fout: 0.6, foutc: '#FFFFFF',
+      cam: [[0, 160, 90, 1.0], [3.2, 160, 84, 1.1, 'o']],
+      act: [{ s: 'cs_boom', fps: 10, once: true, k: [[0.2, [0, 1, 2, 3, 4, 5, 6, 7], 160, 70, 0.6, 0.6, 0], [1.0, [0, 1, 2, 3, 4, 5, 6, 7], 160, 70, 1.8, 1.8, 0, 'o']] },
+            { s: 'cs_boom', fps: 10, once: true, k: [[0.7, [0, 1, 2, 3, 4, 5, 6, 7], 150, 130, 0.5, 0.5, 0], [1.5, [0, 1, 2, 3, 4, 5, 6, 7], 150, 130, 1.4, 1.4, 0, 'o']] },
+            { s: 'cs_boom', fps: 10, once: true, k: [[1.1, [0, 1, 2, 3, 4, 5, 6, 7], 176, 178, 0.6, 0.6, 0], [1.9, [0, 1, 2, 3, 4, 5, 6, 7], 176, 178, 1.6, 1.6, 0, 'o']] }],
+      fx: [[0.2, 'sfx', 'sfx_cs_boom'], [0.2, 'flash', 0.3, '#FFF3C0'], [0.2, 'shake', 6, 2.4], [0.3, 'debris', 2.9]] },
+    { d: 3.8, bg: ['cs_office_morning', 320, 180], fg: 'cs_office_morning_fg', fin: 0.6, finc: '#FFFFFF',
+      cam: [[0, 160, 90, 1.06], [3.8, 172, 94, 1.14, 'l']],
+      act: [{ s: 'cs_hero', z: 1.5, k: [[0, 10, 236, 176, 1, 1, 0], [0.5, 10, 236, 176, 1.01, 1.03, 0, 'io'], [1.0, 10, 236, 176, 1, 1, 0, 'io'], [1.3, 10, 236, 176, 1.01, 1.02, 0, 'io'],
+                                         [1.35, 11, 236, 176, 0.9, 1.2, 0, 'l'], [1.55, 11, 236, 176, 1, 1, 0, 'b'], [2.3, 12, 236, 178, 1, 1, 0, 'l']] },
+            { s: 'cs_fx', k: [[1.35, 6, 264, 74, 0.5, 0.5, 0], [1.5, 6, 264, 70, 1.1, 1.1, 0, 'b'], [2.4, -1, 264, 70, 1, 1, 0, 'l']] },
+            { s: 'cs_fx', k: [[2.3, 7, 216, 84, 1, 1, 0], [3.8, 7, 216, 92, 1, 1, 0, 'l']] }],
+      cap: [[2.3, 3.7, '"…어? 꿈…이었나?"', 's']],
+      fx: [[1.3, 'sfx', 'sfx_cs_alarm'], [1.3, 'shake', 2, 0.7]] },
+    { d: 3.2, bg: ['cs_desk_morning', 320, 180], fout: 0.8,
+      cam: [[0, 160, 96, 1.0], [3.2, 160, 100, 1.12, 'io']],
+      act: [{ s: 'cs_paper', k: [[0, 1, 160, 166, 1, 1, -0.04]] }],
+      cap: [[0.3, 3.0, '구조조정까지 D-30. …오늘도 출근이다.', 'n']] },
+  ] },
+};
+function csTotal(id) { return CUTSCENES[id].shots.reduce(function (a, sh) { return a + sh.d; }, 0); }
+function playCutscene(id, onEnd) { cs = { id: id, t: 0, onEnd: onEnd, fired: {} }; screen = 'cutscene'; focus = 0; log('cutscene ' + id); }
+function endCutscene() { const f = cs && cs.onEnd; cs = null; if (f) f(); }
+function skipCutscene() { if (!cs) return; log('cutscene skip ' + cs.id); sfx('sfx_click'); endCutscene(); }
+function startNormal() { playCutscene('runstart', function () { startRun('normal'); }); }   // 보통 모드 새 판: 짧은 시작 컷신 (건너뛸 수 있다)
+function csShot(t) {   // 지금 장면과 그 장면 안의 시각
+  const shots = CUTSCENES[cs.id].shots; let t0 = 0;
+  for (let i = 0; i < shots.length; i++) { if (t < t0 + shots[i].d || i === shots.length - 1) return { sh: shots[i], i: i, t: t - t0 }; t0 += shots[i].d; }
+}
+function updateCutscene(dt) {
+  if (!cs) { screen = 'title'; return; }
+  if (!assetsReady || cs.freeze) return;                         // 그림이 다 오기 전에는 시작하지 않는다 (freeze: QA용 멈춤)
+  const prev = cs.t; cs.t += dt;
+  const shots = CUTSCENES[cs.id].shots; let t0 = 0;
+  shots.forEach(function (sh, i) {
+    (sh.fx || []).forEach(function (f, j) {
+      const at = t0 + f[0], key = i + ':' + j;
+      if (f[1] === 'sfx' && !cs.fired[key] && prev <= at && cs.t > at) { cs.fired[key] = true; sfx(f[2]); }
+    });
+    t0 += sh.d;
+  });
+  if (cs.t >= csTotal(cs.id)) endCutscene();
+}
+function csKeys(k, t) {   // 키 사이를 이징으로: {f, x, y, sx, sy, r, i}. 첫 키 전이면 null
+  if (t < k[0][0]) return null;
+  let i = 0; while (i + 1 < k.length && t >= k[i + 1][0]) i++;
+  const a = k[i];
+  if (i + 1 >= k.length) return { f: a[1], x: a[2], y: a[3], sx: a[4], sy: a[5], r: a[6], t0: a[0] };
+  const b = k[i + 1], u = CS_EASE[b[7] || 'l'](clamp((t - a[0]) / Math.max(1e-6, b[0] - a[0]), 0, 1));
+  return { f: a[1], x: lerp(a[2], b[2], u), y: lerp(a[3], b[3], u), sx: lerp(a[4], b[4], u), sy: lerp(a[5], b[5], u), r: lerp(a[6], b[6], u), t0: a[0] };
+}
+function csCam(cam, t) {
+  let i = 0; while (i + 1 < cam.length && t >= cam[i + 1][0]) i++;
+  const a = cam[i]; if (i + 1 >= cam.length) return { x: a[1], y: a[2], z: a[3] };
+  const b = cam[i + 1], u = CS_EASE[b[4] || 'l'](clamp((t - a[0]) / Math.max(1e-6, b[0] - a[0]), 0, 1));
+  return { x: lerp(a[1], b[1], u), y: lerp(a[2], b[2], u), z: lerp(a[3], b[3], u) };
+}
+function drawCsActor(a, t) {
+  const k = csKeys(a.k, t); if (!k) return;
+  let f = k.f;
+  if (Array.isArray(f)) { const n = Math.floor((t - (a.once ? a.k[0][0] : 0)) * (a.fps || 6)); f = a.once ? f[Math.min(f.length - 1, n)] : f[n % f.length]; }
+  if (f < 0) return;
+  const z = a.z || 1, rec = A.sprites[a.s], fh = rec && rec.fh ? rec.fh / 2 * z : 0;   // 2배 밀도: 논리 높이 = 프레임/2 (z: 배우 크기)
+  // 발(아래 가운데)을 기준으로 눌리고 늘어나게: 가운데 기준 배율이 옮긴 만큼 되돌린다
+  drawSprite(a.s, 'default', 'f' + f, 0, k.x, k.y - fh * (k.sy - 1) / 2, { scale: 2 * z, sx: k.sx, sy: k.sy, rot: k.r, flip: !!a.flip, nofb: true });
+}
+function csHash(i) { const x = Math.sin(i * 127.1 + 311.7) * 43758.5453; return x - Math.floor(x); }
+function drawCutscene() {
+  if (!cs) return;
+  const p = csShot(cs.t), sh = p.sh, t = p.t;
+  rect(0, 0, W, H, '#0B0C0E');
+  let shx = 0, shy = 0;
+  (sh.fx || []).forEach(function (f) {
+    if (f[1] === 'shake' && t >= f[0] && t < f[0] + f[3]) { const k = 1 - (t - f[0]) / f[3]; shx += Math.sin(t * 73) * f[2] * k; shy += Math.cos(t * 61) * f[2] * k * 0.7; }
+  });
+  ctx.save(); ctx.translate(Math.round(shx), Math.round(shy));
+  if (sh.bg) {
+    const c = csCam(sh.cam, t);
+    ctx.save(); ctx.translate(160, 90); ctx.scale(c.z, c.z); ctx.translate(-c.x, -c.y);
+    drawImg(sh.bg[0], 0, 0, sh.bg[1], sh.bg[2], '#1A2224');
+    (sh.act || []).forEach(function (a) { drawCsActor(a, t); });
+    if (sh.fg) drawImg(sh.fg, 0, 0, sh.bg[1], sh.bg[2], null);
+    (sh.fx || []).forEach(function (f) {
+      if (f[1] !== 'debris' || t < f[0] || t > f[0] + f[2]) return;
+      const e = t - f[0];
+      for (let i = 0; i < 26; i++) {
+        const vx = (csHash(i) - 0.5) * 140, vy = -40 - csHash(i + 50) * 90, x = 160 + vx * e, y = 40 + vy * e + 110 * e * e;
+        if (y > 200) continue;
+        rect(x, y, 2 + (i % 3), 2 + (i % 2), i % 4 ? '#3A3536' : '#E8A050');
+      }
+    });
+    ctx.restore();
+  }
+  if (sh.card === 'title' || sh.card === 'go') drawCsCard(sh.card, t);
+  ctx.restore();
+  // 집중선 (화면 가장자리에서 가운데로)
+  (sh.fx || []).forEach(function (f) {
+    if (f[1] !== 'lines' || t < f[0] || t > f[0] + f[2]) return;
+    for (let i = 0; i < 22; i++) {
+      const a = i / 22 * Math.PI * 2 + csHash(i) * 0.2, len = 30 + csHash(i + 9) * 50, r0 = 150 - ((t * 400 + csHash(i + 3) * 200) % 60);
+      ctx.save(); ctx.translate(160 + Math.cos(a) * r0, 90 + Math.sin(a) * r0 * 0.6); ctx.rotate(a);
+      rect(0, -0.5, len, 1, '#FFFFFF', 0.55); ctx.restore();
+    }
+  });
+  // 번쩍
+  (sh.fx || []).forEach(function (f) { if (f[1] === 'flash' && t >= f[0] && t < f[0] + f[2]) rect(0, 0, W, H, f[3], 0.9 * (1 - (t - f[0]) / f[2])); });
+  // 장면 들고 나기 (검정, 엔딩은 흰색으로도)
+  if (sh.fin && t < sh.fin) rect(0, 0, W, H, sh.finc || '#000000', 1 - t / sh.fin);
+  if (sh.fout && t > sh.d - sh.fout) rect(0, 0, W, H, sh.foutc || '#000000', clamp((t - (sh.d - sh.fout)) / sh.fout, 0, 1));
+  // 위아래 검은 띠와 자막 (타자기처럼 한 글자씩)
+  rect(0, 0, W, 14, '#000000'); rect(0, 154, W, 26, '#000000');
+  (sh.cap || []).forEach(function (c) {
+    if (t < c[0] || t > c[1]) return;   // 자막은 말과 설명만 (소리 효과는 글자로 쓰지 않는다)
+    const n = Math.min(c[2].length, Math.floor((t - c[0]) * 26) + 1);
+    txt(c[2].slice(0, n), 160, 167, { align: 'center', base: 'middle', size: 8, bold: c[3] === 's', color: c[3] === 's' ? '#F2C46A' : '#E8E6DF' });
+  });
+  txt('Enter · 건너뛰기', 314, 4, { align: 'right', size: 6, color: '#6E737A', shadow: false });
+}
+function drawCsCard(kind, t) {
+  rect(0, 0, W, H, '#141518');
+  const k = clamp((t - 0.25) / 0.3, 0, 1), sc = kind === 'go' ? 1 + (1 - CS_EASE.b(clamp(t / 0.25, 0, 1))) * 1.2 : 1 + (1 - CS_EASE.b(k)) * 1.0;
+  if (kind === 'title' && t < 0.25) return;
+  ctx.save(); ctx.translate(160, kind === 'go' ? 88 : 80); ctx.scale(sc, sc);
+  txtO(kind === 'go' ? '업무 시작!' : '승급의 계단', 0, 0, { align: 'center', base: 'middle', size: kind === 'go' ? 22 : 24, bold: true, color: kind === 'go' ? '#F2C46A' : PAL.text });
+  ctx.restore();
+  if (kind === 'title') {
+    const u = clamp((t - 0.7) / 0.4, 0, 1);
+    rect(160 - 60 * u, 96, 120 * u, 2, '#C0302E');
+    if (t > 0.9) txt('대기업 생존 액션', 160, 106, { align: 'center', base: 'middle', size: 8, bold: true, color: '#C0302E' });
+  }
+}
+
+/* ---------------------------------------------------------------------
  * 메인 루프
  * ------------------------------------------------------------------- */
 function update(dt) {
   time += dt;
   if (resultLock > 0) resultLock -= dt;
   if (demo) demoUpdate(dt);
+  else if (screen === 'cutscene') updateCutscene(dt);
   else if (screen === 'play' && run && !settingsOpen) updatePlay(dt);
   syncAudio(false);
 }
@@ -2113,6 +2323,7 @@ function draw() {
     case 'play': if (run) drawPlay(); break;
     case 'pause': if (run) drawPause(); break;
     case 'result': if (result) drawResult(); break;
+    case 'cutscene': drawCutscene(); break;
   }
   if (settingsOpen) {
     if (screen === 'pause' || screen === 'play') { /* 뒤 화면은 이미 그려짐 */ }
@@ -2124,6 +2335,7 @@ function draw() {
 function publish() {
   S.ready = assetsReady;
   S.screen = screen;
+  S.cutscene = cs ? cs.id : null; S.cutsceneT = cs ? Math.round(cs.t * 100) / 100 : 0; S.cutsceneLen = cs ? csTotal(cs.id) : 0;   // 컷신 (QA·자동 시험용)
   S.audioFormat = Snd.format;
   if (run) {
     S.floor = run.floor;
@@ -2147,6 +2359,9 @@ function frame(now) {
   publish();
   requestAnimationFrame(frame);
 }
+if (params.has('cs')) {                                          // QA: ?cs=intro&cst=3.2&csfreeze=1 — 컷신의 한 순간을 멈춰 본다
+  playCutscene(params.get('cs'), toTitle); cs.t = parseFloat(params.get('cst') || '0'); cs.freeze = params.get('csfreeze') === '1';
+} else if (params.get('nointro') !== '1') playCutscene('intro', toTitle);   // 게임을 켜면 인트로 (건너뛰면 타이틀)
 publish();
 requestAnimationFrame(frame);
 })();

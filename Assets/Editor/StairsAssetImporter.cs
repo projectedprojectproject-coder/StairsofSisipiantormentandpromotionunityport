@@ -181,6 +181,7 @@ namespace Stairs.EditorTools
             ti.mipmapEnabled = false;
             ti.alphaIsTransparency = true;
             ti.npotScale = TextureImporterNPOTScale.None;   // 픽셀 아트: 크기를 늘리지 않는다
+            ti.maxTextureSize = 8192;                         // 32비트 시트·컷신 시트는 2048보다 넓다 (줄어들면 프레임이 어긋난다)
             var st = new TextureImporterSettings(); ti.ReadTextureSettings(st);
             st.spriteMeshType = SpriteMeshType.FullRect;           // 칸 전체를 쓴다 (Tight는 투명한 가장자리를 잘라 낸다)
             ti.SetTextureSettings(st);

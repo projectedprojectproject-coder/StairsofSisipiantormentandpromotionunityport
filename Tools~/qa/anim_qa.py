@@ -13,6 +13,7 @@ from PIL import Image
 A = sys.argv[1]
 d = json.load(open(f"{A}/sprite_definition.json", encoding='utf-8'))
 issues, report = [], []
+K = d.get('pixel_scale', 2) / 2   # 밀도 배율: 2배 밀도(16비트)를 1로, 4배 밀도(32비트)는 2. 픽셀 기준 한계를 이만큼 늘린다
 ROWS_FOR = {'obstacles': {'roll': [0], 'fly': [1], 'snap': [2], 'flap': [3]}}
 OBJECTS = {'obstacles'}   # 물건은 부품 사이 외곽선(스테이플러 팔과 받침)이 정상이라 이음매 검사는 사람만
 SEAMS = {}
@@ -50,7 +51,7 @@ for sid in ('player', 'rival', 'staff', 'commuter', 'obstacles'):
                 if c >= cols: issues.append(f"{sid}.{an}: 프레임 {c}가 시트 밖 (열 {cols})"); continue
                 f = img[r * fh:(r + 1) * fh, c * fw:(c + 1) * fw]; m = f[..., 3] > 0
                 if not m.any(): issues.append(f"{sid}.{an} 행{r} 프레임{c}: 비어 있음"); continue
-                big = [s for s in comps(m) if s > 2]
+                big = [s for s in comps(m) if s > 2 * K * K]
                 if len(big) > 1: issues.append(f"{sid}.{an} 행{r} 프레임{c}: 조각 {len(big)}개 {sorted(big, reverse=True)}")
                 ys, xs = np.nonzero(m); bottoms.append(ys.max()); cxs.append(xs.mean()); masks.append((c, f))
                 # 이음매: 외곽선 색 픽셀인데 좌우(또는 위아래) 모두 몸 색(외곽선 아님)인 것 — 몸을 가르는 검은 줄
@@ -59,16 +60,16 @@ for sid in ('player', 'rival', 'staff', 'commuter', 'obstacles'):
                 lr = o[:, 1:-1] & bodyc[:, :-2] & bodyc[:, 2:]; ud = o[1:-1, :] & bodyc[:-2, :] & bodyc[2:, :]
                 seam = int(lr.sum() + ud.sum())
                 SEAMS.setdefault(f"{sid}.{an}", []).append(seam)
-                if seam > (18 if an in SIDE else 14) and sid not in OBJECTS: issues.append(f"{sid}.{an} 행{r} 프레임{c}: 몸을 가르는 외곽선 {seam}픽셀")
+                if seam > (18 if an in SIDE else 14) * K and sid not in OBJECTS: issues.append(f"{sid}.{an} 행{r} 프레임{c}: 몸을 가르는 외곽선 {seam}픽셀")
             if len(bottoms) > 1 and an in GROUNDED and an != 'type':
-                if max(bottoms) - min(bottoms) > 3: issues.append(f"{sid}.{an} 행{r}: 발 기준선이 {min(bottoms)}~{max(bottoms)}로 흔들림")
+                if max(bottoms) - min(bottoms) > 3 * K: issues.append(f"{sid}.{an} 행{r}: 발 기준선이 {min(bottoms)}~{max(bottoms)}로 흔들림")
                 jumps = [abs(cxs[i + 1] - cxs[i]) for i in range(len(cxs) - 1)]
-                if jumps and max(jumps) > 4.5: issues.append(f"{sid}.{an} 행{r}: 몸 가운데가 프레임 사이 {max(jumps):.1f}px 튐")
+                if jumps and max(jumps) > 4.5 * K: issues.append(f"{sid}.{an} 행{r}: 몸 가운데가 프레임 사이 {max(jumps):.1f}px 튐")
             if r == (ROWS_FOR.get(sid, {}).get(an) or [0])[0]:
                 MASKS[(sid, an)] = masks
                 uniq = [i for i in range(len(masks)) if masks[i][0] != masks[(i + 1) % len(masks)][0] and np.array_equal(masks[i][1], masks[(i + 1) % len(masks)][1])]
                 if len(masks) > 1 and uniq: issues.append(f"{sid}.{an}: 프레임 {[masks[i][0] for i in uniq]}가 다음 프레임과 같은 그림 (멈춘 듯)")
-                if len(cxs) > 2 and an in LOOPS and abs(cxs[-1] - cxs[0]) > 4.5: issues.append(f"{sid}.{an}: 되풀이 이음매(마지막→첫 프레임)에서 {abs(cxs[-1] - cxs[0]):.1f}px 튐")
+                if len(cxs) > 2 and an in LOOPS and abs(cxs[-1] - cxs[0]) > 4.5 * K: issues.append(f"{sid}.{an}: 되풀이 이음매(마지막→첫 프레임)에서 {abs(cxs[-1] - cxs[0]):.1f}px 튐")
         fps = a.get('fps', 1); lo, hi = FPS.get(an, (1, 24))
         if len(a['frames']) > 1 and not (lo <= fps <= hi): issues.append(f"{sid}.{an}: fps {fps}가 {lo}~{hi} 밖")
         report.append(f"{sid}.{an}: {len(a['frames'])}프레임 × {rows}행 {fps}fps")

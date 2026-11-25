@@ -33,9 +33,18 @@ with sync_playwright() as pw:
     browser = pw.chromium.launch()
     ctx = browser.new_context(viewport={"width": 1280, "height": 720}, accept_downloads=True)
 
-    # 1) 타이틀 · 설정 · 조작법 · 로비 · 보통 모드 봇 (seed 1)
+    # 0) 컷신: 정해진 순간에 멈춰 찍는다 (PlaytestDriver.CsMoments와 같다)
+    page = ctx.new_page()
+    for cid, t in [("intro", 1.5), ("intro", 5.5), ("intro", 8.0), ("intro", 10.0), ("intro", 16.0), ("intro", 19.0),
+                   ("runstart", 1.0), ("runstart", 3.8), ("runstart", 5.7),
+                   ("ending", 1.5), ("ending", 4.6), ("ending", 7.0), ("ending", 7.6), ("ending", 9.6), ("ending", 12.5), ("ending", 14.6), ("ending", 16.5)]:
+        page.goto(url + f"?mute=1&cs={cid}&cst={t}&csfreeze=1"); wait(page, "S.ready"); page.wait_for_timeout(250); shot(page, f"00_cs_{cid}_{t:04.1f}")
+    page.close()
+
+    # 1) 타이틀 · 설정 · 조작법 · 로비 · 보통 모드 봇 (seed 1). 켤 때 인트로는 Esc로 건너뛴다
     page = ctx.new_page()
     page.goto(url + "?seed=1&bot=1&mute=1")
+    wait(page, "S.ready && S.screen === 'cutscene'"); key(page, "Escape")
     page.wait_for_timeout(1500); shot(page, "01_title")
     key(page, "ArrowRight"); key(page, "Enter"); page.wait_for_timeout(300); shot(page, "02_settings")    # 톱니바퀴 → 설정
     key(page, "ArrowDown", 4); key(page, "Enter"); page.wait_for_timeout(300); shot(page, "03_help")        # 조작법 "보기"
@@ -45,7 +54,8 @@ with sync_playwright() as pw:
     key(page, "Escape")                                                                                   # 장애물 보기 닫기
     key(page, "Escape"); key(page, "Escape")
     key(page, "Enter"); page.wait_for_timeout(500); shot(page, "04_lobby")                                # 시작하기 → 로비
-    key(page, "Enter")                                                                                    # 업무 시작
+    key(page, "Enter")                                                                                    # 업무 시작 → 시작 컷신
+    page.wait_for_timeout(200); key(page, "Escape")                                                       # 시작 컷신 건너뛰기 (Unity 플레이테스트는 바로 판을 연다)
     for n, name in [(20, "05_play_steps20"), (70, "06_play_steps70"), (180, "07_play_steps180")]:
         wait(page, f"S.steps >= {n}"); shot(page, name)
     wait(page, "S.steps >= 200"); key(page, "Escape"); page.wait_for_timeout(300); shot(page, "08_pause"); key(page, "Escape")
@@ -63,7 +73,7 @@ with sync_playwright() as pw:
     # 2) 가만히 있는 판 (seed 2, 봇 없음)
     page = ctx.new_page()
     page.goto(url + "?seed=2&mute=1")
-    page.wait_for_timeout(800); key(page, "Enter"); page.wait_for_timeout(300); key(page, "Enter")
+    page.wait_for_timeout(800); key(page, "Escape"); key(page, "Enter"); page.wait_for_timeout(300); key(page, "Enter"); page.wait_for_timeout(200); key(page, "Escape")
     wait(page, "S.screen === 'result'", 40_000)
     page.wait_for_timeout(1500); shot(page, "14_result_fired")
     page.close()
@@ -71,12 +81,12 @@ with sync_playwright() as pw:
     # 3) 연습 (seed 3), 무한 (seed 4), 봇
     page = ctx.new_page()
     page.goto(url + "?seed=3&bot=1&mute=1")
-    page.wait_for_timeout(800); key(page, "Enter"); page.wait_for_timeout(300); key(page, "ArrowLeft", 2); key(page, "Enter")   # 로비: 업무 시작 → (왼쪽) 설정 톱니바퀴 → 연습 모드
+    page.wait_for_timeout(800); key(page, "Escape"); key(page, "Enter"); page.wait_for_timeout(300); key(page, "ArrowLeft", 2); key(page, "Enter")   # 로비: 업무 시작 → (왼쪽) 설정 톱니바퀴 → 연습 모드
     page.wait_for_timeout(3000); shot(page, "15_practice")
     page.close()
     page = ctx.new_page()
     page.goto(url + "?seed=4&bot=1&mute=1")
-    page.wait_for_timeout(800); key(page, "Enter"); page.wait_for_timeout(300); key(page, "ArrowRight"); key(page, "Enter")
+    page.wait_for_timeout(800); key(page, "Escape"); key(page, "Enter"); page.wait_for_timeout(300); key(page, "ArrowRight"); key(page, "Enter")
     wait(page, "S.floor >= 25", 60_000); shot(page, "16_endless_25F")
     page.close()
     browser.close()

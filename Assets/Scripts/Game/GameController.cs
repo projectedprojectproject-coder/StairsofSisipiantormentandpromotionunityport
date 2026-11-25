@@ -16,9 +16,9 @@ using Random = UnityEngine.Random;
 
 namespace Stairs.Game
 {
-    public class GameController : MonoBehaviour
+    public partial class GameController : MonoBehaviour   // 컷신은 GameController.Cutscenes.cs
     {
-        public enum Screen { Title, Lobby, Play, Pause, Result }
+        public enum Screen { Title, Lobby, Play, Pause, Result, Cutscene }
 
         public GameConfigAsset configAsset;
         public SpriteCatalog catalog;
@@ -30,6 +30,7 @@ namespace Stairs.Game
         public bool bot;                       // 웹 ?bot=1
         public bool ignoreInput;               // 자동 플레이테스트: 키보드·마우스를 무시한다 (창에 눌린 키가 판을 바꾸지 않게)
         public bool mute;                      // 웹 ?mute=1
+        public bool noIntro;                   // 웹 ?nointro=1 (-nointro): 켤 때 인트로를 건너뛴다
 
         // ---- 웹의 전역 상태 ----
         public Screen screen { get; private set; } = Screen.Title;
@@ -98,6 +99,7 @@ namespace Stairs.Game
             {
                 if (a[i] == "-bot") bot = true;
                 else if (a[i] == "-mute") mute = true;
+                else if (a[i] == "-nointro") noIntro = true;
                 else if (a[i] == "-seed" && i + 1 < a.Length && int.TryParse(a[i + 1], out var s)) seed = s;
             }
             SEED = seed >= 0 ? seed : (int)(DateTime.UtcNow.Ticks / TimeSpan.TicksPerMillisecond & 0x7fffffff);
@@ -124,6 +126,7 @@ namespace Stairs.Game
             Resize();
             cv.Warm("0123456789FDx×-+·.,:()→∞%#!?/ ", new[] { 5, 6, 7, 8, 9, 10, 11, 12, 13, 16, 18, 26 });
             SyncAudio(true);
+            if (!noIntro) PlayCutscene("intro", ToTitle);   // 게임을 켜면 인트로 (건너뛰면 타이틀) — 웹과 같다
         }
 
         void OnDestroy() { Camera.onPostRender -= OnCamPostRender; cv?.Dispose(); }
@@ -159,6 +162,7 @@ namespace Stairs.Game
             time += dt;
             if (resultLock > 0) resultLock -= dt;
             if (demo != null) DemoUpdate(dt);
+            else if (screen == Screen.Cutscene) UpdateCutscene(dt);
             else if (screen == Screen.Play && run != null && !settingsOpen)
             {
                 run.Bot = bot;
@@ -186,6 +190,7 @@ namespace Stairs.Game
                 case Screen.Play: if (run != null) DrawPlay(); break;
                 case Screen.Pause: if (run != null) DrawPause(); break;
                 case Screen.Result: if (result != null) DrawResult(); break;
+                case Screen.Cutscene: DrawCutscene(); break;
             }
             if (settingsOpen) DrawSettings();
             if (helpOpen) DrawHelp();
@@ -197,7 +202,7 @@ namespace Stairs.Game
         string audioKey; double audioSyncT;
         string DesiredBgm()
         {
-            if (screen == Screen.Result) return null;
+            if (screen == Screen.Result || screen == Screen.Cutscene) return null;   // 컷신은 효과음과 사무실 소리만
             if ((screen == Screen.Play || screen == Screen.Pause) && run != null)
             {
                 string id = StageBgm[Math.Min(4, (run.floor - 1) / 20)];   // 음악은 20층마다
@@ -239,6 +244,11 @@ namespace Stairs.Game
             result = run.ended;
             SaveData.Record(result);   // 무한은 최고 층만, 보통은 최고 층·점수 (웹 save와 같은 키)
             resultT0 = time; resultStamped = false;
+            if (result.promoted && result.mode == GameMode.Normal && result.floor >= C.finalFloor)
+            {   // 100층 엔딩: 버튼을 누르고… 책상에서 깨어난다 (꿈). 끝나면 결과 화면
+                PlayCutscene("ending", () => { screen = Screen.Result; focus = 0; resultLock = 0.5; resultT0 = time; resultStamped = false; });
+                return;
+            }
             screen = Screen.Result; focus = 0; resultLock = 0.5;
         }
 
@@ -295,7 +305,7 @@ namespace Stairs.Game
                     var gear = B("settings", "", 298, 4, 18, 18, OpenSettings); gear.icon = "gear";
                     return new List<Btn> { start, gear };
                 case Screen.Lobby:
-                    var work = B("work", "업무 시작", 104, 150, 112, 18, () => StartRun(GameMode.Normal), 10); work.tone = "red";   // 05-2 요소 4 (ESC: 타이틀로)
+                    var work = B("work", "업무 시작", 104, 150, 112, 18, () => StartNormal(), 10); work.tone = "red";   // 05-2 요소 4 (ESC: 타이틀로)
                     var lobbyGear = B("settings", "", 226, 5, 18, 18, OpenSettings); lobbyGear.icon = "gear";   // 설정 (층 명판과 D-30 사이)
                     return new List<Btn> { work, B("endless", "무한 모드", 224, 150, 84, 18, () => StartRun(GameMode.Endless), 8), B("practice", "연습 모드", 12, 150, 84, 18, () => StartRun(GameMode.Practice), 8), lobbyGear };
                 case Screen.Pause:
@@ -307,9 +317,9 @@ namespace Stairs.Game
                         B("main", "메인으로", 100, 120, 120, 14, () => { Debug.Log("[stairs] quit to title"); ToTitle(); }),
                     };
                 case Screen.Result:
-                    var again = B("again", result != null && result.promoted ? "1층부터 다시" : "다시 하기", 96, 155, 62, 16, () => StartRun(result != null ? result.mode : GameMode.Normal), 8); again.tone = "red";   // 05-5 요소 5
+                    var again = B("again", result != null && result.promoted ? "1층부터 다시" : "다시 하기", 63, 155, 62, 16, () => { if (result == null || result.mode == GameMode.Normal) StartNormal(); else StartRun(result.mode); }, 8); again.tone = "red";   // 05-5 요소 5
                     var resultGear = B("settings", "", 298, 4, 18, 18, OpenSettings); resultGear.icon = "gear";   // 설정 (장애물 보기도 여기서)
-                    return new List<Btn> { again, B("share", "기록 공유", 166, 155, 62, 16, () => DoShare(), 8), resultGear };   // 요소 2
+                    return new List<Btn> { again, B("share", "기록 공유", 129, 155, 62, 16, () => DoShare(), 8), B("lobby", "로비로", 195, 155, 62, 16, () => { screen = Screen.Lobby; focus = 0; }, 8), resultGear };   // 요소 2, 로비로 돌아가기 (ESC와 같다)
             }
             return new List<Btn>();
         }
@@ -337,6 +347,7 @@ namespace Stairs.Game
 
         void KeyDown(string c)
         {
+            if (screen == Screen.Cutscene) { if (c == "Enter" || c == "NumpadEnter" || c == "Escape" || c == "Space") SkipCutscene(); return; }   // 컷신은 건너뛴다
             if (c == "Escape")
             {
                 if (demo != null) { CloseDemo(); return; }
@@ -387,6 +398,7 @@ namespace Stairs.Game
                 lastMouse = pos;
                 if (MenuMode()) { int i = HitButton(LogicalPos(pos)); if (i >= 0) focus = i; }
             }
+            if (ms.leftButton.wasPressedThisFrame && screen == Screen.Cutscene) { SkipCutscene(); return; }
             if (ms.leftButton.wasPressedThisFrame && MenuMode())
             {
                 int i = HitButton(LogicalPos(pos));
@@ -1486,7 +1498,7 @@ namespace Stairs.Game
             }
             // 2, 5 버튼
             DrawButtons();
-            if (time < toastUntil) Txt(toastText, 197, 174, T(6, "center", color: PalGreen));
+            if (time < toastUntil) Txt(toastText, 160, 174, T(6, "center", color: PalGreen));
         }
 
         // 기록 공유: 결과 카드를 640x360 PNG로 저장한다 (웹은 stairs_result.png를 내려받는다)
