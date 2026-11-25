@@ -38,6 +38,14 @@ namespace Stairs.Game
             amb.clip = s.clip; amb.volume = muted ? 0 : ambVolume; amb.Play();
         }
 
+        /// <summary>소리 켜기·끄기 (일시정지 메뉴, SaveData에 남는다).</summary>
+        public void SetMuted(bool m)
+        {
+            muted = m;
+            if (bgm) bgm.volume = m ? 0 : bgmVolume;
+            if (amb) amb.volume = m ? 0 : ambVolume;
+        }
+
         public void Play(string id, float vol = 1f)
         {
             if (muted || !catalog) return;

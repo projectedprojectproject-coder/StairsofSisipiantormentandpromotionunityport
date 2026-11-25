@@ -38,6 +38,11 @@ namespace Stairs.Core
         public float weightPaper = 0.6f, weightSticky = 0.6f, weightSuitcase = 0.6f;
         public int stickyMax = 5;
         public float rivalWalk = 0.6f, flickerTime = 0.6f;
+        // 경쟁 사원 쫓아오기 (2026-11-25 Unity 2단계): 층 바닥을 걸어오고, 플레이어가 더 높으면 계단을 따라 오른다
+        public float rivalLeap = 0.3f;        // 치기 직전 플레이어 칸으로 뛰어오르는 시간(초). 이때 막을 쪽이 정해진다
+        public float rivalSpeed = 240f;       // 층 바닥을 걷는 속도(논리 px/초)
+        public float rivalClimb = 10f;        // 계단을 오르는 속도(칸/초). 플레이어보다 빠르다
+        public bool showRivalCameo = true;    // 경쟁 사원이 공격하기 전 층(rivalFromFloor 미만)의 장식
 
         // ---- 기획서 미정 ----
         public int stairsPerFloor = 6;
@@ -53,6 +58,7 @@ namespace Stairs.Core
 
         // ---- 표현 (논리 픽셀, 320x180 기준) ----
         public float stepW = 22f, stepH = 12f;
+        public float viewW = 320f, viewH = 180f;   // 웹 W, H. 경쟁 사원이 화면 끝에서 들어오는 자리에 쓴다
 
         public string[] rankNames = { "사원", "대리", "과장", "간부", "CEO" };
         public string[] zoneNames = { "파티션 사무실", "개방형 오피스", "텅 빈 회의실", "임원층", "CEO실" };

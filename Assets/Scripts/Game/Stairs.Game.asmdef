@@ -1,6 +1,6 @@
 {
   "name": "Stairs.Game",
   "rootNamespace": "Stairs.Game",
-  "references": ["Stairs.Core", "Unity.InputSystem"],
+  "references": ["Stairs.Core", "Unity.InputSystem", "UnityEngine.UI"],
   "autoReferenced": true
 }
