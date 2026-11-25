@@ -1,0 +1,15 @@
+/[Ll]ibrary/
+/[Tt]emp/
+/[Oo]bj/
+/[Bb]uild/
+/[Bb]uilds/
+/[Ll]ogs/
+/[Uu]ser[Ss]ettings/
+*.csproj
+*.sln
+.vs/
+# 웹 빌드에서 가져온 에셋은 Stairs > Import Web Build Assets 로 다시 만든다
+/Assets/Imported/
+/Assets/Imported.meta
+/Assets/Resources/Stairs/
+/Assets/Resources/Stairs.meta

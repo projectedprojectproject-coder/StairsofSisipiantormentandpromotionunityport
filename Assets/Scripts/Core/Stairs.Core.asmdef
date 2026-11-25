@@ -1,0 +1,7 @@
+{
+  "name": "Stairs.Core",
+  "rootNamespace": "Stairs.Core",
+  "references": [],
+  "noEngineReferences": true,
+  "autoReferenced": true
+}
