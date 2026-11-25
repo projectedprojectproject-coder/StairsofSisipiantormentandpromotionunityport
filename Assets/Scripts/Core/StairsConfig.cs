@@ -59,6 +59,12 @@ namespace Stairs.Core
         // ---- 표현 (논리 픽셀, 320x180 기준) ----
         public float stepW = 22f, stepH = 12f;
         public float viewW = 320f, viewH = 180f;   // 웹 W, H. 경쟁 사원이 화면 끝에서 들어오는 자리에 쓴다
+        // ---- 웹 CONFIG의 표현·소리 값 (그리기와 소리에만 쓴다) ----
+        public float suitcaseBurst = 0.1f;   // 서류가방이 도착 몇 초 전에 터지는지
+        public float monitorAngle = 70f;     // 모니터가 떨어지는 사선의 각도(수평에서, 도)
+        public int tenseFloor = 11;          // 단계 음악이 없을 때 bgm_loop → bgm_loop_tense
+        public int commuters = 5;            // 타이틀 거리를 걷는 사원 수
+        public float bgmVolume = 0.45f, ambVolume = 0.15f, sfxVolume = 0.8f;
 
         /// <summary>
         /// 인스펙터용 float 값을 웹(JS double)과 같은 double로 읽는다. (double)0.33f 는 0.32999998이지만

@@ -19,20 +19,25 @@ namespace Stairs.EditorTools
         const float PPU = 32f;   // 에셋 px 32 = 1 유닛 (논리 16px, 2배 밀도)
         static readonly HashSet<string> FeetPivot = new HashSet<string> { "player", "rival", "commuter", "props" };
 
-        // 웹 빌드 에셋을 찾는 순서: 파이프라인 결과(output, output_api) → 저장소에 들어 있는 데모(demo_api, demo)
+        // 웹 빌드 에셋을 찾는 순서:
+        //   1) 이 Unity 프로젝트에 함께 넣은 웹 판 사본 WebReference/assets (Unity 판만 따로 받은 저장소)
+        //   2) 웹 저장소 안의 unity/StairsOfPromotion 이라면 그 저장소의 파이프라인 결과(output, output_api) → 데모(demo_api, demo)
         static readonly string[] Candidates = { "output/build/assets", "output_api/build/assets", "demo_api/assets", "demo/assets" };
 
         static string DefaultSource
         {
             get
             {
-                string root = Path.GetFullPath(Path.Combine(Application.dataPath, "../../.."));
+                string project = Path.GetFullPath(Path.Combine(Application.dataPath, ".."));
+                string bundled = Path.Combine(project, "WebReference", "assets");
+                if (File.Exists(Path.Combine(bundled, "sprite_definition.json"))) return bundled;
+                string root = Path.GetFullPath(Path.Combine(project, "../.."));
                 foreach (var c in Candidates)
                 {
                     string p = Path.Combine(root, c);
                     if (File.Exists(Path.Combine(p, "sprite_definition.json"))) return p;
                 }
-                return Path.Combine(root, Candidates[0]);
+                return bundled;
             }
         }
 
@@ -70,6 +75,7 @@ namespace Stairs.EditorTools
 
             var catalog = LoadOrCreate<SpriteCatalog>(Dst + "/SpriteCatalog.asset");
             catalog.pixelsPerUnit = PPU;
+            catalog.pixelScale = def.ContainsKey("pixel_scale") ? Int(def, "pixel_scale") : 1;
             catalog.sheets.Clear(); catalog.images.Clear(); catalog.sounds.Clear();
 
             foreach (var kv in sprites)
@@ -109,7 +115,18 @@ namespace Stairs.EditorTools
             }
             EditorUtility.SetDirty(catalog);
             AssetDatabase.SaveAssets();
-            Debug.Log($"[Stairs] 가져오기 완료: 시트 {catalog.sheets.Count}, 이미지 {catalog.images.Count}, 소리 {catalog.sounds.Count} ({src})");
+            // 빠짐없이 들어왔는지: 정의의 모든 시트·이미지·소리, 시트의 모든 칸, 모든 동작의 프레임 번호가 그림 안에 있는지
+            var missing = new List<string>();
+            foreach (var sh in catalog.sheets)
+            {
+                for (int k = 0; k < sh.sprites.Length; k++) if (!sh.sprites[k]) missing.Add(sh.id + " 칸 " + k);
+                foreach (var an in sh.anims) foreach (int f in an.frames) if (f < 0 || f >= sh.cols) missing.Add(sh.id + "." + an.name + " 프레임 " + f + " (칸 " + sh.cols + "개)");
+            }
+            foreach (var im in catalog.images) if (!im.sprite) missing.Add("이미지 " + im.id);
+            foreach (var so in catalog.sounds) if (!so.clip) missing.Add("소리 " + so.id);
+            if (catalog.sheets.Count != sprites.Count || catalog.images.Count != images.Count || catalog.sounds.Count != sounds.Count) missing.Add("정의와 개수가 다름");
+            if (missing.Count > 0) Debug.LogError("[Stairs] 가져오지 못한 것: " + string.Join(", ", missing));
+            Debug.Log($"[Stairs] 가져오기 완료: 시트 {catalog.sheets.Count}/{sprites.Count}, 이미지 {catalog.images.Count}/{images.Count}, 소리 {catalog.sounds.Count}/{sounds.Count}, 빠진 것 {missing.Count} ({src})");
             return catalog;
         }
 
@@ -164,6 +181,9 @@ namespace Stairs.EditorTools
             ti.mipmapEnabled = false;
             ti.alphaIsTransparency = true;
             ti.npotScale = TextureImporterNPOTScale.None;   // 픽셀 아트: 크기를 늘리지 않는다
+            var st = new TextureImporterSettings(); ti.ReadTextureSettings(st);
+            st.spriteMeshType = SpriteMeshType.FullRect;           // 칸 전체를 쓴다 (Tight는 투명한 가장자리를 잘라 낸다)
+            ti.SetTextureSettings(st);
 #pragma warning disable 618   // Unity 6에서 spritesheet는 ISpriteEditorDataProvider 권장이지만 아직 동작한다
             if (metas != null) ti.spritesheet = metas;
 #pragma warning restore 618

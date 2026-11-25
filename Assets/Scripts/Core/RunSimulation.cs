@@ -35,8 +35,10 @@ namespace Stairs.Core
         public bool SideKnown => !IsRival || locked;
     }
 
-    /// <summary>패링 불꽃 (웹의 sparks). 월드 좌표.</summary>
+    /// <summary>패링 불꽃 (웹의 sparks). 웹과 같이 화면 좌표(논리 px)다.</summary>
     public sealed class Spark { public double x, y, vx, vy, t; public bool olive; }
+    /// <summary>떠오르는 글자 (웹의 texts/addText). 화면 좌표, color는 "green"·"red"·"text" (웹 PAL).</summary>
+    public sealed class FloatText { public string s, color; public double x, y, t; }
     /// <summary>치고 물러나는 경쟁 사원 (웹의 leavers). 월드 좌표.</summary>
     public sealed class Leaver { public int side; public double t0, wx, wy; }
 
@@ -70,6 +72,12 @@ namespace Stairs.Core
         public readonly List<Threat> threats = new List<Threat>();
         public readonly List<Spark> sparks = new List<Spark>();
         public readonly List<Leaver> leavers = new List<Leaver>();
+        public readonly List<FloatText> texts = new List<FloatText>();
+        /// <summary>웹 PLAYER_Y: 플레이어 발이 화면 위에서 128px.</summary>
+        public const double PlayerY = 128;
+        /// <summary>웹 playerScreenX(): Math.round(160 + (pvx - camX)).</summary>
+        public int PlayerScreenX => JsRound(160 + (pvx - camX));
+        void AddText(string s, double x, double y, string color) => texts.Add(new FloatText { s = s, x = x, y = y, color = color });
         public string lastKind;
         public RunResult ended;
         public double endTimer;
@@ -160,10 +168,11 @@ namespace Stairs.Core
                 if (hearts < C.maxHearts)
                 {
                     hearts = Math.Min(C.maxHearts, hearts + C.floorHeal);
+                    AddText(nf + "F · 하트 +1", 160, 70, "green");
                     Toast?.Invoke(nf + "F · 하트 +1");
                     Log?.Invoke("heart +1 (floor) hearts=" + hearts);
                 }
-                else Toast?.Invoke(nf + "F");
+                else { AddText(nf + "F", 160, 70, "text"); Toast?.Invoke(nf + "F"); }
                 if (Array.IndexOf(C.promoteFloors, nf) >= 0) Promote(nf);
                 if (Mode == GameMode.Normal && nf >= C.finalFloor && !Ended) { Sfx?.Invoke("sfx_promote"); Log?.Invoke("finish " + nf + "F"); End(true, "floor" + nf); }
             }
@@ -198,6 +207,7 @@ namespace Stairs.Core
             Sfx?.Invoke("sfx_promote");
             Log?.Invoke("promote -> " + RankName + " (" + f + "F)");
             if (f >= C.finalFloor) { End(true, "floor" + f); return; }
+            AddText("승급! " + C.rankNames[rankIdx - 1] + " → " + RankName, 160, 56, "green");
             Toast?.Invoke("승급! " + C.rankNames[rankIdx - 1] + " → " + RankName);   // 장애물은 그대로 둔다 (2026-11-20)
         }
 
@@ -325,6 +335,8 @@ namespace Stairs.Core
             camX += (pvx - camX) * Math.Min(1, dt * 8); camY = pvy;
             foreach (var s in sparks) { s.x += s.vx * dt; s.y += s.vy * dt; s.vy += 120 * dt; s.t += dt; }
             sparks.RemoveAll(s => s.t >= 0.4);
+            foreach (var x in texts) { x.t += dt; x.y -= 14 * dt; }
+            texts.RemoveAll(x => x.t >= 0.8);
             leavers.RemoveAll(l => time - l.t0 >= 0.5);
             if (C.showRivalCameo && rivalIdx < steps - 3) rivalIdx = steps + 8 + (int)Math.Floor(decor.Next() * 6);
 
@@ -379,7 +391,7 @@ namespace Stairs.Core
                 bool parried = parryStart[s] <= p.impactT && p.impactT <= parryEnd[s];
                 if (p.type == ThreatType.Coffee)   // 커피: 막으면 하트 -1, 그냥 두면 지나간다
                 {
-                    if (parried) { Log?.Invoke("coffee parried"); lastKind = "coffee"; LoseHeart("coffee"); if (Ended) break; }
+                    if (parried) { Log?.Invoke("coffee parried"); lastKind = "coffee"; AddText("커피!", PlayerScreenX + p.side * 10, PlayerY - 30, "red"); LoseHeart("coffee"); if (Ended) break; }
                     else Log?.Invoke("coffee dodged");
                     continue;
                 }
@@ -392,11 +404,13 @@ namespace Stairs.Core
                     days = Math.Min(D(C.maxDays), days + D(C.parryDays));
                     score += C.parryPoints * mult;
                     Sfx?.Invoke("sfx_parry");
-                    for (int k = 0; k < 8; k++)   // 패링 불꽃 (웹과 같이 decor 8번)
+                    int px = PlayerScreenX + p.side * 10;
+                    for (int k = 0; k < 8; k++)   // 패링 불꽃 (웹과 같이 decor 8번, 화면 좌표)
                     {
                         double a = decor.Next() * Math.PI * 2;
-                        sparks.Add(new Spark { x = pvx + p.side * 10, y = pvy - 14, vx = Math.Cos(a) * 50, vy = Math.Sin(a) * 50 - 20, olive = k % 2 == 0 });
+                        sparks.Add(new Spark { x = px, y = PlayerY - 14, vx = Math.Cos(a) * 50, vy = Math.Sin(a) * 50 - 20, olive = k % 2 == 0 });
                     }
+                    AddText("+" + D(C.parryDays).ToString(System.Globalization.CultureInfo.InvariantCulture), px, PlayerY - 30, "green");
                     Log?.Invoke("parry ok combo=" + combo + " x" + mult);
                     if (p.type == ThreatType.Sticky && p.hp > 1)   // 포스트잇: 튕겨 나갔다가 같은 쪽으로 돌아온다
                     {

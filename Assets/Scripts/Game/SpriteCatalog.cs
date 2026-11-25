@@ -25,6 +25,7 @@ namespace Stairs.Game
         [Serializable] public class Sound { public string id; public AudioClip clip; public bool loop; }
 
         public float pixelsPerUnit = 32f;      // 에셋 px. 논리 px(320x180)의 2배 밀도라 논리 16px = 1 유닛
+        public int pixelScale = 2;             // sprite_definition.json의 pixel_scale (웹 PX): 에셋 px / 논리 px
         public List<Sheet> sheets = new List<Sheet>();
         public List<Image> images = new List<Image>();
         public List<Sound> sounds = new List<Sound>();
@@ -57,19 +58,29 @@ namespace Stairs.Game
         {
             if (sheetMap == null) Build();
             if (!sheetMap.TryGetValue(id, out var s) || s.sprites == null) return null;
-            var a = s.anims.Find(x => x.name == anim) ?? (s.anims.Count > 0 ? s.anims[0] : null);
-            if (a == null || a.frames == null || a.frames.Length == 0) return null;
-            int n = (int)Math.Floor(Math.Max(0, t) * a.fps);   // 웹: Math.max(0, t). 음수면 배열 밖이라 예외가 났다
-            n = Once.Contains(a.name) ? Math.Min(n, a.frames.Length - 1) : n % a.frames.Length;
-            int col = a.frames[n];
+            // 웹 drawSprite와 같다: 없는 동작이면 0번 칸, 없는 변형이면 0번 줄
+            var a = s.anims.Find(x => x.name == anim);
+            int col = 0;
+            if (a != null && a.frames != null && a.frames.Length > 0)
+            {
+                int n = (int)Math.Floor(Math.Max(0, t) * (a.fps > 0 ? a.fps : 1));   // 웹: Math.max(0, t). 음수면 배열 밖이라 예외가 났다
+                n = Once.Contains(a.name) ? Math.Min(n, a.frames.Length - 1) : n % a.frames.Length;
+                col = a.frames[n];
+            }
             int row = 0;
             if (!string.IsNullOrEmpty(variant) && s.variants != null)
             {
                 int idx = Array.IndexOf(s.variants, variant);
-                if (idx >= 0) row = idx; else int.TryParse(variant, out row);
+                if (idx >= 0) row = idx;
             }
             int k = Mathf.Clamp(row, 0, s.rows - 1) * s.cols + col;
             return k >= 0 && k < s.sprites.Length ? s.sprites[k] : null;
+        }
+
+        public Sheet GetSheet(string id)
+        {
+            if (sheetMap == null) Build();
+            return sheetMap.TryGetValue(id, out var s) && s.sprites != null ? s : null;
         }
 
         public Sprite GetImage(string id)

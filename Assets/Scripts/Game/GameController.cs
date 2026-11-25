@@ -1,11 +1,18 @@
-// 승급의 계단 Unity 판의 진입점. 빈 씬에 GameObject 하나를 만들고 이 컴포넌트를 붙이면 된다
-// (Stairs > Create Game Scene 메뉴가 대신 해 준다).
-// 화면: 타이틀 → 로비(연습·보통·무한) → 플레이 ⇄ 일시정지(조작법, 소리) → 결과. 규칙은 Core/RunSimulation,
-// 여기는 입력·월드 그리기·소리·저장, HUD와 메뉴는 GameUi(uGUI)가 맡는다.
+// 승급의 계단 Unity 판. 웹 PoC(demo_api/game.js)를 그대로 옮겼다:
+//   규칙   → Core/RunSimulation (웹과 프레임 단위로 같다, ParityTests)
+//   그리기 → 이 파일의 Draw* 함수 = game.js의 drawTitle/drawLobby/drawPlayWorld/drawHud/drawPause/drawSettings/drawHelp/drawResult를
+//            한 줄씩 옮긴 것. WebCanvas가 웹 캔버스(rect/txt/drawSprite/drawImg, save/translate/rotate)를 흉내 낸다.
+//   입력·메뉴·소리 → getButtons/keydown/mousedown/syncAudio를 옮긴 것.
+// 빈 씬에 GameObject 하나를 만들고 이 컴포넌트를 붙이면 된다 (Stairs > Create Game Scene).
+// 명령줄: -seed N (웹 ?seed=N), -bot (웹 ?bot=1), -mute (웹 ?mute=1).
+using System;
 using System.Collections.Generic;
+using System.Globalization;
+using System.IO;
 using Stairs.Core;
 using UnityEngine;
 using UnityEngine.InputSystem;
+using Random = UnityEngine.Random;
 
 namespace Stairs.Game
 {
@@ -16,445 +23,1048 @@ namespace Stairs.Game
         public GameConfigAsset configAsset;
         public SpriteCatalog catalog;
         public AudioDirector audioDirector;
-        [Tooltip("HUD·메뉴의 한글 글꼴 (NeoDunggeunmo 또는 Noto Sans KR TTF). 비우면 OS 글꼴에서 찾는다")]
-        public Font uiFont;
-        public int seed = 1;
-        public bool bot;                       // 웹의 ?bot=1 (자동 플레이)
+        [Tooltip("글꼴. 비우면 Resources/Fonts의 Noto Sans KR(웹 txt의 글꼴), 그것도 없으면 OS 한글 글꼴")]
+        public Font uiFont, uiFontBold;
+        [Tooltip("-1이면 웹처럼 시각으로 정한다 (Date.now() & 0x7fffffff)")]
+        public int seed = -1;
+        public bool bot;                       // 웹 ?bot=1
+        public bool mute;                      // 웹 ?mute=1
 
+        // ---- 웹의 전역 상태 ----
         public Screen screen { get; private set; } = Screen.Title;
         public RunSimulation run { get; private set; }
         public RunResult result { get; private set; }
-        public int focus { get; private set; }
-        public float screenTime { get; private set; }
-        public string toast { get; private set; }
-        public float toastUntil { get; private set; }
-        public readonly float[] padUntil = new float[4];   // 조작 키 아이콘이 켜져 있는 시각 (← → Q E)
-        public bool Muted => audioDirector && audioDirector.muted;
+        public string FontName => font ? font.name : "없음";
+        int focus;
+        double resultLock, resultT0;
+        bool resultStamped, settingsOpen, helpOpen;
+        string toastText = ""; double toastUntil;
+        readonly double[] padUntil = new double[4];   // ←, →, Q, E 키 아이콘 발광
+        double time, acc;
+        int runCount, SEED;
+        string animState = ""; double animStart;
+        const double STEP = 1.0 / 60.0;
+        const float W = WebCanvas.W, H = WebCanvas.H;
+        const float PLAYER_Y = 128;
 
-        const float LogicalPerUnit = 16f;      // 논리 px 16 = 1 유닛 (카메라 높이 180px = 11.25 유닛)
-        const float PlayerY = 128f;            // 웹 PLAYER_Y: 플레이어 발이 화면 위에서 128px
-        const double MaxFrame = 0.1;           // 웹 frame(): 한 번에 0.1초까지만 따라잡는다
-        static readonly string[] StickyColors = { "white", "white", "yellow", "green", "blue", "pink" };
-        static readonly Color SlabColor = UiKit.Hex(0x4E5259), SlabTop = UiKit.Hex(0x7B8088), PracticeFloor = UiKit.Hex(0x3A3D42);
-
-        int runCount;
-        double acc;                            // 고정 1/60초 진행에 남은 시간 (웹 frame()의 acc)
-        GameUi ui;
-        Camera cam;
-        SpriteRenderer bg, player, flash, hurt, cameo;
-        readonly List<SpriteRenderer> stairPool = new List<SpriteRenderer>();
-        readonly List<SpriteRenderer> slabPool = new List<SpriteRenderer>(), slabTopPool = new List<SpriteRenderer>();
-        readonly List<SpriteRenderer> threatPool = new List<SpriteRenderer>();
-        readonly List<SpriteRenderer> warnPool = new List<SpriteRenderer>();
-        readonly List<SpriteRenderer> fxPool = new List<SpriteRenderer>();
-        readonly List<LineRenderer> arcPool = new List<LineRenderer>();
-        Vector2 playerPos;                     // Unity 쪽 논리 px (위가 +y)
-        string animState; double animStart;
         StairsConfig C => configAsset ? configAsset.config : (fallback ??= new StairsConfig());
         StairsConfig fallback;
+        static double D(float v) => StairsConfig.D(v);
+
+        Camera cam;
+        WebCanvas cv;
+        Font font;
+        float scale = 1; Rect viewport;
+        Vector2 lastMouse = new Vector2(-1, -1);
+
+        static readonly Color PalGray = WebCanvas.Gray, PalGreen = WebCanvas.Green, PalRed = WebCanvas.Red, PalBg = WebCanvas.Bg, PalText = WebCanvas.Text;
+        static Color Hex(string s) => WebCanvas.Hex(s);
+        static readonly string[] StickyColors = { "white", "white", "yellow", "green", "blue", "pink" };
+        static readonly Color[] RankColors = { WebCanvas.Gray, WebCanvas.Green, WebCanvas.Red, WebCanvas.Text, WebCanvas.Text };
+        static readonly string[] StageBgm = { "bgm_stage1", "bgm_stage2", "bgm_stage3", "bgm_stage4", "bgm_stage5" };
+
+        public static readonly Dictionary<string, string> Tips = new Dictionary<string, string>
+        {
+            { "clipboard", "결재판은 \"딱… 딱!\"의 두 번째 딱에 맞춰 막으세요" },
+            { "rival", "경쟁 사원이 계단을 쫓아오면 내가 올라온 쪽(뒤쪽) 키로 막으세요" },
+            { "coffee", "커피(× 표시)는 막지 마세요. 그냥 두면 지나갑니다" },
+            { "monitor", "형광등이 깜박이면 모니터! 유리 깨지는 소리 1초 뒤에 떨어집니다" },
+            { "phone", "전화기는 두 번째 벨이 울리는 순간에 막으세요" },
+            { "paper", "서류는 머리 위로 넘어가 반대쪽에서 맞습니다. 맞는 쪽 키로!" },
+            { "sticky", "포스트잇 색은 남은 횟수: 분홍5 파랑4 초록3 노랑2 흰색1" },
+            { "suitcase", "서류가방은 \"펑!\" 하고 터지는 순간에 막으세요" },
+            { "wrong", "다음 계단이 어느 쪽인지 먼저 보고 누르세요. 틀리면 하트 -1" },
+            { "cracked", "금 간 계단에서는 멈추지 마세요. 1.5초면 무너집니다" },
+            { "shock", "젖은 계단은 3초마다 감전! 불꽃이 튀면 건너기 전에 잠깐 기다리세요" },
+            { "days", "오르고 막을수록 남은 일수가 늘어납니다. 쉬지 말고 오르세요" },
+        };
+
+        int PX => catalog ? Mathf.Max(1, catalog.pixelScale) : 1;
+
+        // ================================================================ 시작
+        void Awake()
+        {
+            var a = Environment.GetCommandLineArgs();
+            for (int i = 0; i < a.Length; i++)
+            {
+                if (a[i] == "-bot") bot = true;
+                else if (a[i] == "-mute") mute = true;
+                else if (a[i] == "-seed" && i + 1 < a.Length && int.TryParse(a[i + 1], out var s)) seed = s;
+            }
+            SEED = seed >= 0 ? seed : (int)(DateTime.UtcNow.Ticks / TimeSpan.TicksPerMillisecond & 0x7fffffff);
+            Application.runInBackground = true;   // 웹 탭처럼 초점이 없어도 돈다
+        }
 
         void Start()
         {
             cam = Camera.main;
             if (!cam) { cam = new GameObject("Main Camera").AddComponent<Camera>(); cam.tag = "MainCamera"; }
-            cam.orthographic = true;
-            cam.orthographicSize = 180f / 2f / LogicalPerUnit;
-            cam.backgroundColor = UiKit.Bg;
+            cam.clearFlags = CameraClearFlags.SolidColor;
+            cam.backgroundColor = PalBg;          // 웹 body/canvas 배경 #1E1F22
+            cam.cullingMask = 0;                  // 월드에는 아무것도 없다. 모두 WebCanvas로 그린다
             if (!audioDirector) audioDirector = gameObject.AddComponent<AudioDirector>();
             if (!audioDirector.catalog) audioDirector.catalog = catalog;
-            audioDirector.SetMuted(SaveData.Muted);
-            bg = NewRenderer("Background", -100);
-            cameo = NewRenderer("RivalCameo", 8);
-            player = NewRenderer("Player", 10);
-            hurt = NewRenderer("HurtFlash", 99);
-            flash = NewRenderer("CameraFlash", 100);
-            hurt.sprite = flash.sprite = WhiteSprite();
-            ui = new GameObject("UI").AddComponent<GameUi>();
-            ui.transform.SetParent(transform, false);
-            ui.Build(this, catalog, C, uiFont);
-            audioDirector.SetBgm("bgm_loop");
-            audioDirector.SetAmbience("amb_office");
-            Go(Screen.Title);
+            audioDirector.muted = mute;
+            // 웹 txt: (bold) size px "Noto Sans KR", sans-serif. 설치된 Noto Sans KR은 가변 글꼴이라 Unity가 굵기를 고르지 못해
+            // 가는(100) 굵기로 나왔다. 그래서 보통(400)·굵게(700)로 고정한 글꼴 파일을 함께 넣었다 (Resources/Fonts, SIL OFL)
+            font = uiFont ? uiFont : Resources.Load<Font>("Fonts/NotoSansKR-Regular");
+            var bold = uiFontBold ? uiFontBold : Resources.Load<Font>("Fonts/NotoSansKR-Bold");
+            if (!font) { font = Font.CreateDynamicFontFromOSFont(new[] { "Malgun Gothic", "Apple SD Gothic Neo", "Noto Sans CJK KR" }, 16); bold = null; }
+            cv = new WebCanvas(font, bold);
+            Camera.onPostRender += OnCamPostRender;
+            Resize();
+            cv.Warm("0123456789FDx×-+·.,:()→∞%#!?/ ", new[] { 5, 6, 7, 8, 9, 10, 11, 12, 13, 16, 18, 26 });
+            SyncAudio(true);
         }
 
-        SpriteRenderer NewRenderer(string name, int order)
+        void OnDestroy() { Camera.onPostRender -= OnCamPostRender; cv?.Dispose(); }
+
+        // 웹 resize(): 아트 픽셀이 화면 픽셀에 딱 맞도록 배율을 PX의 배수로 (창이 너무 작으면 1배). 캔버스는 가운데
+        void Resize()
         {
-            var sr = new GameObject(name).AddComponent<SpriteRenderer>();
-            sr.transform.SetParent(transform, false);
-            sr.sortingOrder = order;
-            return sr;
+            int sw = UnityEngine.Screen.width, sh = UnityEngine.Screen.height, px = PX;
+            int k = Mathf.FloorToInt(Mathf.Min(sw / (W * px), sh / (H * px)));
+            scale = k >= 1 ? k * px : Mathf.Max(1, Mathf.FloorToInt(Mathf.Min(sw / W, sh / H)));
+            viewport = new Rect(Mathf.Floor((sw - W * scale) / 2), Mathf.Floor((sh - H * scale) / 2), W * scale, H * scale);
+            cv.SetScale(scale);
         }
 
-        static Vector3 ToWorld(double lx, double ly) => new Vector3((float)(lx / LogicalPerUnit), (float)(ly / LogicalPerUnit), 0);
-        /// <summary>Core(웹) 월드 좌표(아래가 +y) → Unity 월드.</summary>
-        static Vector3 W2U(double wx, double wy) => ToWorld(wx, -wy);
-        double StairUY(int i) => i * StairsConfig.D(C.stepH);   // i번째 칸 윗면의 Unity 쪽 논리 y (위로 오른다)
-
-        // ------------------------------------------------------------ 입력과 화면 전환
+        // ================================================================ 메인 루프 (웹 frame/update)
         void Update()
         {
-            var kb = Keyboard.current;
-            screenTime += Time.deltaTime;
-            if (kb != null) HandleKeys(kb);
-            if (screen == Screen.Play)
+            Resize();
+            HandleKeys();
+            HandleMouse();
+            acc += Math.Min(Time.deltaTime, 0.1);
+            while (acc >= STEP) { acc -= STEP; StepFrame(STEP); }
+        }
+
+        void StepFrame(double dt)
+        {
+            time += dt;
+            if (resultLock > 0) resultLock -= dt;
+            if (screen == Screen.Play && run != null && !settingsOpen)
             {
-                // 웹과 같이 1/60초씩 고정으로 진행한다 (Unity의 들쭉날쭉한 deltaTime 대신). 그래야 같은 seed면 웹과 같은 판이 된다
                 run.Bot = bot;
-                acc += System.Math.Min(Time.deltaTime, MaxFrame);
-                bool finished = false;
-                while (acc >= RunSimulation.Step60 && !finished) { acc -= RunSimulation.Step60; finished = run.Tick(RunSimulation.Step60); }
-                if (finished) FinishRun();
-                else audioDirector.SetBgm(audioDirector.StageBgm(run.floor));
+                if (run.Tick(dt)) FinishRun();
             }
+            SyncAudio(false);
+        }
+
+        void OnCamPostRender(Camera c)
+        {
+            if (c != cam || cv == null) return;
+            cv.Begin(viewport, scale);
             Draw();
-            ui.Tick(screen, screenTime, focus);
+            cv.End();
         }
 
-        void HandleKeys(Keyboard kb)
+        void Draw()
         {
-            if (screen == Screen.Play)
+            cv.globalAlpha = 1;
+            Rect(0, 0, W, H, PalBg);
+            switch (screen)
             {
-                // 끝난 뒤 결과로 넘어가기 전(endDelay)에는 일시정지하지 않는다: 멈추면 결과로 못 넘어가 갇혔다
-                if (kb.escapeKey.wasPressedThisFrame && !run.Ended) { Go(Screen.Pause); return; }
-                if (kb.leftArrowKey.wasPressedThisFrame) { Pad(0); run.Step(-1); }
-                if (kb.rightArrowKey.wasPressedThisFrame) { Pad(1); run.Step(1); }
-                if (kb.qKey.wasPressedThisFrame) { Pad(2); run.Parry(-1); }
-                if (kb.eKey.wasPressedThisFrame) { Pad(3); run.Parry(1); }
-                return;
+                case Screen.Title: DrawTitle(); break;
+                case Screen.Lobby: DrawLobby(); break;
+                case Screen.Play: if (run != null) DrawPlay(); break;
+                case Screen.Pause: if (run != null) DrawPause(); break;
+                case Screen.Result: if (result != null) DrawResult(); break;
             }
-            var bs = ui.Buttons(screen);
-            if (bs != null && bs.Count > 0)
-            {
-                if (kb.leftArrowKey.wasPressedThisFrame || kb.upArrowKey.wasPressedThisFrame) { focus = (focus + bs.Count - 1) % bs.Count; PlaySfx("sfx_click", 0.5f); }
-                if (kb.rightArrowKey.wasPressedThisFrame || kb.downArrowKey.wasPressedThisFrame) { focus = (focus + 1) % bs.Count; PlaySfx("sfx_click", 0.5f); }
-                bool locked = screen == Screen.Result && screenTime < 0.5f;   // 웹 resultLock: 결과가 뜨자마자 눌려 넘어가지 않게
-                if (!locked && (kb.enterKey.wasPressedThisFrame || kb.numpadEnterKey.wasPressedThisFrame || kb.spaceKey.wasPressedThisFrame))
-                {
-                    PlaySfx("sfx_click");
-                    bs[Mathf.Clamp(focus, 0, bs.Count - 1)].onClick?.Invoke();
-                    return;
-                }
-            }
-            if (kb.escapeKey.wasPressedThisFrame)
-            {
-                if (ui.HelpOpen) ui.ShowHelp(false);
-                else if (screen == Screen.Pause) Resume();
-                else if (screen == Screen.Lobby) Go(Screen.Title);
-                else if (screen == Screen.Result && screenTime > 0.5f) QuitToLobby();
-            }
+            if (settingsOpen) DrawSettings();
+            if (helpOpen) DrawHelp();
         }
 
-        void Pad(int i) => padUntil[i] = Time.time + 0.12f;
-
-        // 창이 가려지면 일시정지 (웹의 visibilitychange)
-        void OnApplicationFocus(bool has) { if (!has && screen == Screen.Play && run != null && !run.Ended) Go(Screen.Pause); }
-        void OnApplicationPause(bool paused) { if (paused && screen == Screen.Play && run != null && !run.Ended) Go(Screen.Pause); }
-
-        void Go(Screen s)
+        // ================================================================ 소리 (웹 sfx/desiredBgm/syncAudio)
+        void Sfx(string id) => audioDirector.Sfx(id, C.sfxVolume);
+        string audioKey; double audioSyncT;
+        string DesiredBgm()
         {
-            screen = s; screenTime = 0; focus = s == Screen.Lobby ? 1 : 0;   // 로비는 가운데 "업무 시작"
-            if (s == Screen.Lobby || s == Screen.Title) audioDirector.SetBgm("bgm_loop");
-            if (s == Screen.Result && result != null) audioDirector.Play(result.promoted ? "sfx_promote" : "sfx_click");
-            ui.Show(s);
+            if (screen == Screen.Result) return null;
+            if ((screen == Screen.Play || screen == Screen.Pause) && run != null)
+            {
+                string id = StageBgm[Math.Min(4, (run.floor - 1) / 20)];   // 음악은 20층마다
+                if (audioDirector.Has(id)) return id;
+                if (run.floor >= C.tenseFloor) return "bgm_loop_tense";
+            }
+            return "bgm_loop";
+        }
+        void SyncAudio(bool force)
+        {
+            string key = DesiredBgm() + "|" + audioDirector.muted + "|" + audioDirector.vol + "|" + (screen == Screen.Pause);
+            if (!force && key == audioKey && time - audioSyncT < 1) return;
+            audioKey = key; audioSyncT = time;
+            var want = new Dictionary<string, float>();
+            if (!audioDirector.muted)
+            {
+                string b = DesiredBgm();
+                if (b != null) want[b] = C.bgmVolume * (screen == Screen.Pause ? 0.4f : 1f);
+                want["amb_office"] = C.ambVolume;
+            }
+            var ids = new List<string> { "bgm_loop", "bgm_loop_tense", "amb_office" }; ids.AddRange(StageBgm);
+            audioDirector.SyncLoops(ids, want);
         }
 
-        public void ResetFocus() => focus = 0;
-        /// <summary>일시정지 (Esc와 같다). 끝나 가는 판은 멈추지 않는다.</summary>
-        public void PauseGame() { if (screen == Screen.Play && run != null && !run.Ended) Go(Screen.Pause); }
-        public void GoLobby() => Go(Screen.Lobby);
-        public void Resume() { if (run != null) { acc = 0; Go(Screen.Play); } }
-        public void QuitToLobby() { run = null; Go(Screen.Lobby); }
-        public void PlaySfx(string id, float vol = 1f) => audioDirector.Play(id, vol);
-        public void ToggleMute() { audioDirector.SetMuted(!audioDirector.muted); SaveData.Muted = audioDirector.muted; }
-
+        // ================================================================ 한 판 (웹 startRun/finishRun)
         public void StartRun(GameMode mode)
         {
-            run = new RunSimulation(C, seed + runCount++, mode) { Bot = bot };
-            run.Sfx += id => audioDirector.Play(id);
-            run.Toast += s => { toast = s; toastUntil = Time.time + 0.9f; };
-            run.Log += s => { if (bot) Debug.Log("[stairs] " + s); };
-            animState = null; acc = 0;
-            Go(Screen.Play);
+            int s = SEED + runCount; runCount++;
+            run = new RunSimulation(C, s, mode) { Bot = bot };
+            run.Sfx += Sfx;
+            run.Log += m => { if (bot) Debug.Log("[stairs] " + m); };
+            animState = ""; animStart = 0;
+            screen = Screen.Play; focus = 0; settingsOpen = false;
+            Debug.Log("[stairs] run start seed=" + s + " mode=" + mode.ToString().ToLowerInvariant());
         }
 
         void FinishRun()
         {
             result = run.ended;
-            SaveData.Record(result);   // 최고 기록 (result.newBest)
-            audioDirector.SetBgm(null);
-            Go(Screen.Result);
+            SaveData.Record(result);   // 무한은 최고 층만, 보통은 최고 층·점수 (웹 save와 같은 키)
+            resultT0 = time; resultStamped = false;
+            screen = Screen.Result; focus = 0; resultLock = 0.5;
         }
 
-        // ------------------------------------------------------------ 월드 그리기
-        void Draw()
+        // PlaytestDriver와 외부에서 쓰는 조작 (웹 버튼과 같은 동작)
+        public void GoLobby() { screen = Screen.Lobby; focus = 0; }
+        public void PauseGame() { if (screen == Screen.Play) { screen = Screen.Pause; focus = 0; } }
+        public void Resume() { if (screen == Screen.Pause) { screen = Screen.Play; focus = 0; } }
+        public void QuitToLobby() { screen = Screen.Lobby; focus = 0; settingsOpen = false; helpOpen = false; }
+        public void OpenSettings() { settingsOpen = true; focus = 0; }
+        public void CloseSettings() { settingsOpen = false; focus = 0; }
+        public void OpenHelp() { helpOpen = true; focus = 0; }
+        public void CloseHelp() { helpOpen = false; focus = 0; }
+        public string ShareResult() => DoShare();
+        void Toast(string s) { toastText = s; toastUntil = time + 2.5; }
+        void ToTitle() { screen = Screen.Title; focus = 0; settingsOpen = false; helpOpen = false; }
+
+        // ================================================================ 버튼 (웹 btn/getButtons/activate)
+        sealed class Btn
         {
-            bool inRun = run != null && (screen == Screen.Play || screen == Screen.Pause);
-            player.enabled = bg.enabled = inRun;
-            flash.enabled = hurt.enabled = cameo.enabled = false;
-            foreach (var s in stairPool) s.enabled = false;
-            foreach (var s in slabPool) s.enabled = false;
-            foreach (var s in slabTopPool) s.enabled = false;
-            foreach (var s in threatPool) s.enabled = false;
-            foreach (var s in warnPool) s.enabled = false;
-            foreach (var s in fxPool) s.enabled = false;
-            foreach (var a in arcPool) a.enabled = false;
-            if (!inRun) return;   // 타이틀·로비·결과의 배경은 GameUi가 그린다
+            public string id, label, tone, icon; public float x, y, w, h; public int size; public Action fn;
+        }
+        static Btn B(string id, string label, float x, float y, float w, float h, Action fn, int size = 0) => new Btn { id = id, label = label, x = x, y = y, w = w, h = h, fn = fn, size = size };
 
-            playerPos = new Vector2((float)run.pvx, (float)-run.pvy);
-            // 플레이어 발이 화면 위에서 128px(웹 PLAYER_Y)에 오도록 카메라를 올린다. 맞으면 잠깐 흔들린다
-            Vector2 shake = run.shake > 0 && screen == Screen.Play ? new Vector2(Mathf.Round(Random.Range(-2f, 2f)), Mathf.Round(Random.Range(-2f, 2f))) : Vector2.zero;
-            cam.transform.position = ToWorld(run.camX + shake.x, -run.camY + (PlayerY - 90) + shake.y) + Vector3.back * 10;
-            Vector3 camCenter = new Vector3(cam.transform.position.x, cam.transform.position.y, 0);
-
-            bool practice = run.Mode == GameMode.Practice;
-            int zone = StairLayout.ZoneOf(run.floor);
-            bg.sprite = catalog ? catalog.GetImage(practice ? "bg_practice" : "bg_zone" + zone) : null;
-            bg.transform.position = camCenter + Vector3.forward * 10;
-            int slabs = 0;
-
-            if (practice)
+        List<Btn> GetButtons()
+        {
+            if (helpOpen) return new List<Btn> { B("close", "닫기", 110, 146, 100, 14, CloseHelp) };
+            if (settingsOpen)
             {
-                // 연습 모드: 계단 없이 옆에서 본 사무실 바닥에 선다 (웹 drawPlayWorld). 배경이 없으면 바닥 띠만
-                if (!bg.sprite) Slab(slabs++, playerPos.y - 2, 60, PracticeFloor, PracticeFloor);
+                return new List<Btn>
+                {
+                    B("snd", audioDirector.muted ? "꺼짐" : "켜짐", 170, 42, 88, 14, () => { audioDirector.muted = !audioDirector.muted; SyncAudio(true); }),
+                    B("vdn", "-", 170, 60, 24, 14, () => { audioDirector.vol = Mathf.Clamp01(Mathf.Round((audioDirector.vol - 0.1f) * 10) / 10); SyncAudio(true); }),
+                    B("vup", "+", 234, 60, 24, 14, () => { audioDirector.vol = Mathf.Clamp01(Mathf.Round((audioDirector.vol + 0.1f) * 10) / 10); SyncAudio(true); }),
+                    B("fs", "전체화면", 170, 78, 88, 14, () => { UnityEngine.Screen.fullScreen = !UnityEngine.Screen.fullScreen; }),
+                    B("help", "보기", 170, 104, 88, 14, OpenHelp),
+                    B("close", "닫기", 110, 136, 100, 16, CloseSettings),
+                };
+            }
+            switch (screen)
+            {
+                case Screen.Title:
+                    var start = B("start", "시작하기", 122, 98, 76, 18, () => { screen = Screen.Lobby; focus = 0; }, 10); start.tone = "red";
+                    var gear = B("settings", "", 298, 4, 18, 18, OpenSettings); gear.icon = "gear";
+                    return new List<Btn> { start, gear };
+                case Screen.Lobby:
+                    var work = B("work", "업무 시작", 104, 150, 112, 18, () => StartRun(GameMode.Normal), 10); work.tone = "red";   // 05-2 요소 4 (ESC: 타이틀로)
+                    return new List<Btn> { work, B("endless", "무한 모드", 224, 150, 84, 18, () => StartRun(GameMode.Endless), 8), B("practice", "연습 모드", 12, 150, 84, 18, () => StartRun(GameMode.Practice), 8) };
+                case Screen.Pause:
+                    return new List<Btn>
+                    {
+                        B("resume", "계속하기", 100, 66, 120, 14, () => { screen = Screen.Play; focus = 0; }),
+                        B("help", "조작법", 100, 84, 120, 14, OpenHelp),
+                        B("settings", "설정", 100, 102, 120, 14, OpenSettings),
+                        B("main", "메인으로", 100, 120, 120, 14, () => { Debug.Log("[stairs] quit to title"); ToTitle(); }),
+                    };
+                case Screen.Result:
+                    var again = B("again", result != null && result.promoted ? "1층부터 다시" : "다시 하기", 96, 155, 62, 16, () => StartRun(result != null ? result.mode : GameMode.Normal), 8); again.tone = "red";   // 05-5 요소 5
+                    return new List<Btn> { again, B("share", "기록 공유", 166, 155, 62, 16, () => DoShare(), 8) };   // 요소 2
+            }
+            return new List<Btn>();
+        }
+        void Activate(Btn b) { if (b == null) return; Sfx("sfx_click"); b.fn(); }
+
+        // ================================================================ 입력 (웹 keydown/mousemove/mousedown/visibilitychange)
+        bool MenuMode() => screen != Screen.Play || settingsOpen || helpOpen;
+
+        void HandleKeys()
+        {
+            var kb = Keyboard.current;
+            if (kb == null) return;
+            if (kb.escapeKey.wasPressedThisFrame) KeyDown("Escape");
+            if (kb.leftArrowKey.wasPressedThisFrame) KeyDown("ArrowLeft");
+            if (kb.rightArrowKey.wasPressedThisFrame) KeyDown("ArrowRight");
+            if (kb.upArrowKey.wasPressedThisFrame) KeyDown("ArrowUp");
+            if (kb.downArrowKey.wasPressedThisFrame) KeyDown("ArrowDown");
+            if (kb.qKey.wasPressedThisFrame) KeyDown("KeyQ");
+            if (kb.eKey.wasPressedThisFrame) KeyDown("KeyE");
+            if (kb.tabKey.wasPressedThisFrame) KeyDown("Tab");
+            if (kb.enterKey.wasPressedThisFrame) KeyDown("Enter");
+            if (kb.numpadEnterKey.wasPressedThisFrame) KeyDown("NumpadEnter");
+            if (kb.spaceKey.wasPressedThisFrame) KeyDown("Space");
+        }
+
+        void KeyDown(string c)
+        {
+            if (c == "Escape")
+            {
+                if (helpOpen) { CloseHelp(); return; }
+                if (settingsOpen) { CloseSettings(); return; }
+                if (screen == Screen.Play) { screen = Screen.Pause; focus = 0; return; }
+                if (screen == Screen.Pause) { screen = Screen.Play; focus = 0; return; }
+                if (screen == Screen.Lobby) { ToTitle(); return; }
+                if (screen == Screen.Result) { screen = Screen.Lobby; focus = 0; return; }
+                return;
+            }
+            if (!MenuMode())
+            {
+                if (c == "ArrowLeft") KeyStep(-1);
+                else if (c == "ArrowRight") KeyStep(1);
+                else if (c == "KeyQ") KeyParry(-1);
+                else if (c == "KeyE") KeyParry(1);
+                return;
+            }
+            var bs = GetButtons();
+            if (bs.Count == 0) return;
+            if (c == "ArrowUp" || c == "ArrowLeft") focus = (focus + bs.Count - 1) % bs.Count;
+            else if (c == "ArrowDown" || c == "ArrowRight" || c == "Tab") focus = (focus + 1) % bs.Count;
+            else if (c == "Enter" || c == "NumpadEnter" || c == "Space")
+            {
+                if (screen == Screen.Result && resultLock > 0) return;
+                Activate(bs[focus % bs.Count]);
+            }
+        }
+
+        void KeyStep(int dir) { padUntil[dir < 0 ? 0 : 1] = time + 0.12; if (run != null && !run.Ended && screen == Screen.Play) run.Step(dir); }
+        void KeyParry(int side) { padUntil[side < 0 ? 2 : 3] = time + 0.12; if (run != null && !run.Ended && screen == Screen.Play) run.Parry(side); }
+
+        Vector2 LogicalPos(Vector2 m) => new Vector2((m.x - viewport.x) / scale, (viewport.yMax - m.y) / scale);
+        int HitButton(Vector2 p)
+        {
+            var bs = GetButtons();
+            for (int i = 0; i < bs.Count; i++) { var b = bs[i]; if (p.x >= b.x && p.x <= b.x + b.w && p.y >= b.y && p.y <= b.y + b.h) return i; }
+            return -1;
+        }
+        void HandleMouse()
+        {
+            var ms = Mouse.current;
+            if (ms == null) return;
+            var pos = ms.position.ReadValue();
+            if (pos != lastMouse)
+            {
+                lastMouse = pos;
+                if (MenuMode()) { int i = HitButton(LogicalPos(pos)); if (i >= 0) focus = i; }
+            }
+            if (ms.leftButton.wasPressedThisFrame && MenuMode())
+            {
+                int i = HitButton(LogicalPos(pos));
+                if (i >= 0)
+                {
+                    focus = i;
+                    if (screen == Screen.Result && resultLock > 0) return;
+                    Activate(GetButtons()[i]);
+                }
+            }
+        }
+        // 웹 visibilitychange: 탭이 숨겨질 때(창을 내렸을 때)만 일시정지한다. 다른 창을 눌러 초점만 잃으면 웹처럼 계속 돈다
+        void OnApplicationPause(bool p) { if (p && screen == Screen.Play) { screen = Screen.Pause; focus = 0; } }
+
+        // ================================================================ 그리기 도구 (웹 rect/frameRect/txt/drawSprite/drawImg)
+        static float JsRound(double v) => (float)Math.Floor(v + 0.5);
+        static double Clamp(double v, double a, double b) => Math.Max(a, Math.Min(b, v));
+        static double Lerp(double a, double b, double t) => a + (b - a) * t;
+        static string Num(double v) => v.ToString("0.##########", CultureInfo.InvariantCulture);   // JS 숫자 → 글자
+
+        void Rect(double x, double y, double w, double h, Color c, double? a = null) => cv.Rect((float)x, (float)y, (float)w, (float)h, c, a.HasValue ? (float?)a.Value : null);
+        void Rect(double x, double y, double w, double h, string c, double? a = null) => Rect(x, y, w, h, Hex(c), a);
+        void FrameRect(double x, double y, double w, double h, Color c) => cv.FrameRect((float)x, (float)y, (float)w, (float)h, c);
+        void FrameRect(double x, double y, double w, double h, string c) => FrameRect(x, y, w, h, Hex(c));
+
+        struct TO { public int size; public bool bold, noShadow; public WebCanvas.Align align; public WebCanvas.Base bas; public Color? color; }
+        static TO T(int size, string align = "left", string bas = "top", bool bold = false, Color? color = null, bool shadow = true) => new TO
+        {
+            size = size, bold = bold, noShadow = !shadow, color = color,
+            align = align == "center" ? WebCanvas.Align.Center : align == "right" ? WebCanvas.Align.Right : WebCanvas.Align.Left,
+            bas = bas == "middle" ? WebCanvas.Base.Middle : WebCanvas.Base.Top,
+        };
+        void Txt(string s, double x, double y, TO o)
+        {
+            float rx = JsRound(x), ry = JsRound(y);
+            int size = o.size > 0 ? o.size : 8;
+            if (!o.noShadow) cv.FillText(s, rx + 1, ry + 1, size, o.bold, o.align, o.bas, PalBg);
+            cv.FillText(s, rx, ry, size, o.bold, o.align, o.bas, o.color ?? PalText);
+        }
+
+        sealed class SO
+        {
+            public double scale = 1; public double? dw, dh, fw, fh, rot, sx, sy; public string anchor = "bc"; public Color? color; public bool nofb, flip, gray;
+        }
+        bool DrawSprite(string id, string variant, string anim, double t, double x, double y, SO o)
+        {
+            o = o ?? new SO();
+            double sc = o.scale;
+            var sheet = catalog ? catalog.GetSheet(id) : null;
+            bool usable = sheet != null && sheet.frameW > 0 && sheet.frameH > 0;
+            double dw, dh;
+            if (usable) { dw = o.dw ?? sheet.frameW * sc / PX; dh = o.dh ?? sheet.frameH * sc / PX; }
+            else { dw = o.dw ?? (o.fw ?? 10) * sc; dh = o.dh ?? (o.fh ?? 10) * sc; }
+            double dx = x, dy = y;
+            if (o.anchor == "bc") { dx = x - dw / 2; dy = y - dh; }
+            else if (o.anchor == "c") { dx = x - dw / 2; dy = y - dh / 2; }
+            else if (o.anchor == "tc") { dx = x - dw / 2; }
+            dx = JsRound(dx * PX) / PX; dy = JsRound(dy * PX) / PX;
+            if (!usable)
+            {
+                if (!o.nofb) cv.Fill((float)dx, (float)dy, JsRound(dw), JsRound(dh), o.color ?? PalGray);
+                return false;
+            }
+            var spr = catalog.Get(id, anim, variant, t);
+            if ((o.rot.HasValue && o.rot.Value != 0) || o.sx.HasValue || o.sy.HasValue || o.gray)
+            {
+                // 회전·눌림·필터: 그림 가운데를 기준으로 돌리고 줄인다
+                cv.Save(); cv.Translate((float)(dx + dw / 2), (float)(dy + dh / 2)); cv.Rotate((float)(o.rot ?? 0));
+                cv.Scale((float)((o.flip ? -1 : 1) * (o.sx ?? 1)), (float)(o.sy ?? 1));
+                if (o.gray) cv.grayFilter = true;
+                cv.DrawImage(spr, (float)(-dw / 2), (float)(-dh / 2), (float)dw, (float)dh);
+                cv.Restore();
+                return true;
+            }
+            if (o.flip)
+            {
+                cv.Save(); cv.Translate((float)(dx + dw), (float)dy); cv.Scale(-1, 1);
+                cv.DrawImage(spr, 0, 0, (float)dw, (float)dh);
+                cv.Restore();
+            }
+            else cv.DrawImage(spr, (float)dx, (float)dy, (float)dw, (float)dh);
+            return true;
+        }
+        bool DrawImg(string id, double x, double y, double w, double h, Color? fallback)
+        {
+            var s = catalog ? catalog.GetImage(id) : null;
+            if (s) { cv.DrawImage(s, (float)x, (float)y, (float)w, (float)h); return true; }
+            if (fallback.HasValue) cv.Fill((float)x, (float)y, (float)w, (float)h, fallback.Value);
+            return false;
+        }
+
+        void DrawButtons()
+        {
+            var bs = GetButtons();
+            if (focus >= bs.Count) focus = 0;
+            for (int i = 0; i < bs.Count; i++)
+            {
+                var b = bs[i]; bool f = i == focus;
+                if (b.icon != null)   // 아이콘만 있는 버튼 (타이틀의 톱니바퀴)
+                {
+                    Rect(b.x, b.y, b.w, b.h, PalBg, f ? 0.9 : 0.6);
+                    FrameRect(b.x, b.y, b.w, b.h, f ? PalText : PalGray);
+                    if (!DrawSprite("hud_icons", "default", b.icon, 0, b.x + (b.w - 12) / 2, b.y + (b.h - 12) / 2, new SO { anchor = "tl", dw = 12, dh = 12, nofb = true }))
+                        Txt("설정", b.x + b.w / 2, b.y + b.h / 2, T(6, "center", "middle"));
+                    continue;
+                }
+                bool red = b.tone == "red";
+                Rect(b.x, b.y, b.w, b.h, red ? (f ? Hex("#B84545") : PalRed) : (f ? PalGreen : PalGray));
+                FrameRect(b.x, b.y, b.w, b.h, f ? PalText : PalBg);
+                if (red) FrameRect(b.x + 1, b.y + 1, b.w - 2, b.h - 2, "#6E2626");
+                Txt(b.label, b.x + b.w / 2, b.y + b.h / 2 + 0.5, T(b.size > 0 ? b.size : 8, "center", "middle", false, f && !red ? PalBg : PalText, !f || red));
+            }
+        }
+        void DrawHeart(double x, double y, bool full)
+        {
+            bool ok = DrawSprite("hud_icons", "default", full ? "heart" : "heart_empty", 0, x, y, new SO { anchor = "tl", dw = 12, dh = 12, nofb = true });
+            if (!ok) Rect(x, y, 10, 10, full ? PalRed : PalGray, full ? 1 : 0.5);
+        }
+        void DrawBadgeIcon(double x, double y, double size)
+        {
+            bool ok = DrawSprite("hud_icons", "default", "badge", 0, x, y, new SO { anchor = "tl", dw = size, dh = size, nofb = true });
+            if (!ok) Rect(x, y, size, size, PalGreen);
+        }
+
+        // ================================================================ 05-1 타이틀
+        void DrawCommuters()
+        {
+            for (int i = 0; i < C.commuters; i++)
+            {
+                int dir = i % 3 == 1 ? -1 : 1; double v = 9 + ((i * 7) % 5) * 1.6, span = W + 28;
+                double x = (((20 + i * 64 + (i % 2) * 17 + dir * v * time) % span) + span) % span - 14;
+                DrawSprite("commuter", "default", "walk", time * (v / 11) + i * 0.37, x, 179, new SO { fw = 10, fh = 20, nofb = true, flip = dir < 0 });
+            }
+        }
+        void DrawTitle()
+        {
+            bool titleOk = DrawImg("title_bg", 0, 0, W, H, PalBg);
+            DrawCommuters();
+            if (!titleOk)
+            {
+                // 어두운 빌딩 숲 + 가운데 본사 꼭대기만 불빛
+                int[] hs = { 60, 90, 50, 110, 70, 130, 55, 95, 65 };
+                for (int i = 0; i < hs.Length; i++) Rect(i * 36 - 4, H - hs[i], 30, hs[i], PalGray, 0.35);
+                Rect(136, 40, 48, 140, PalGray, 0.6);
+                Rect(150, 52, 20, 10, PalText);
+            }
+            var lg = catalog ? catalog.GetImage("logo") : null;
+            if (lg)
+            {
+                double iw = lg.rect.width, ih = lg.rect.height;
+                double s = Math.Min(1.0 / PX, Math.Min(280 / iw, 70 / ih));
+                cv.DrawImage(lg, JsRound((W - iw * s) / 2), 34, (float)(iw * s), (float)(ih * s));   // 05-1 컨셉: 본사 앞 가운데 명판
             }
             else
             {
-                var sh = run.Shock;
-                int spf = C.stairsPerFloor;
-                // 층 바닥(콘크리트 슬래브): 층이 바뀌는 칸 높이에 화면 끝까지. 경쟁 사원이 이 위를 걸어온다
-                for (int i = (int)System.Math.Floor((run.steps - 6) / (double)spf) * spf; i <= run.steps + 14; i += spf)
-                    if (i > 0) Slab(slabs++, (float)StairUY(i), 7, SlabColor, SlabTop);
-                int n = 0;
-                for (int i = Mathf.Max(0, run.steps - 6); i <= run.steps + 14; i++)
-                {
-                    bool cracked = run.Stairs.IsCracked(i), wet = run.Stairs.IsWet(i);
-                    string anim = cracked && catalog && catalog.HasAnim("stairs", "cracked") ? "cracked" : wet && catalog && catalog.HasAnim("stairs", "wet") ? "wet" : "tile";
-                    var sr = Pooled(stairPool, n++, 0, "Stair");
-                    sr.sprite = catalog ? catalog.Get("stairs", anim, "zone" + zone, Time.time) : null;
-                    // 금 간 계단: 서 있으면 시간이 갈수록 흔들리고 붉어진다
-                    double crack = cracked && i == run.steps ? run.crackT / StairsConfig.D(C.crackTime) : 0;
-                    sr.color = Color.Lerp(Color.white, new Color(1f, 0.55f, 0.55f), (float)crack);
-                    double jx = crack > 0 ? System.Math.Sin(run.time * 70) * crack * 1.5 : 0;
-                    sr.transform.position = ToWorld(run.Stairs.StairX(i) + jx, StairUY(i) - 6);   // 시트 가운데 기준: 디딤판 윗면이 발 높이
-                    if (wet && (sh.live || sh.warn)) DrawArc(i, sh.live);
-                }
+                Rect(50, 20, 220, 48, PalBg, 0.8);
+                FrameRect(50, 20, 220, 48, PalRed);
+                Txt("승급의 계단", 160, 30, T(26, "center", bold: true));
+                Txt("구조조정까지 D-30", 160, 58, T(8, "center", color: PalGreen));
             }
-
-            // 경쟁 사원 장식 (경쟁 사원이 공격하기 전 층)
-            if (!practice && C.showRivalCameo && run.floor < C.rivalFromFloor && run.rivalIdx >= run.steps - 3 && run.rivalIdx <= run.steps + 14 && catalog)
-            {
-                cameo.enabled = true;
-                cameo.sprite = catalog.Get("rival", "walk", null, Time.time);
-                cameo.color = new Color(1, 1, 1, 0.75f);
-                cameo.flipX = run.Stairs.DirAt(run.rivalIdx) < 0;
-                cameo.transform.position = ToWorld(run.Stairs.StairX(run.rivalIdx), StairUY(run.rivalIdx) - 1);
-            }
-
-            string pa = PlayerAnim();
-            player.sprite = catalog ? catalog.Get("player", pa, run.RankName, run.time - animStart) : null;
-            player.flipX = run.facing < 0 && pa != "parry_left" && pa != "parry_right";
-            player.transform.position = ToWorld(playerPos.x, playerPos.y - 2);
-
-            int k = 0, w = 0;
-            foreach (var l in run.leavers)   // 치고 물러나는 경쟁 사원
-            {
-                double u = (run.time - l.t0) / 0.5;
-                var sr = Pooled(threatPool, k++, 20, "Threat");
-                sr.sprite = catalog ? catalog.Get("rival", "leave", null, run.time - l.t0) : null;
-                sr.color = new Color(1, 1, 1, Mathf.Clamp01((float)(1 - u)));
-                sr.flipX = l.side < 0;
-                sr.transform.rotation = Quaternion.identity;
-                sr.transform.position = W2U(l.wx + l.side * u * 90, l.wy - 1);
-            }
-            foreach (var p in run.threats)
-            {
-                if (p.IsRival) { DrawRival(p, k++, ref w); continue; }
-                if (run.time < p.spawnT) continue;   // 모니터: 아직 형광등이 깜박이는 중
-                var sr = Pooled(threatPool, k++, 20, "Threat");
-                sr.sprite = ThreatSprite(p);
-                sr.color = Color.white; sr.flipX = p.side > 0;
-                Vector3 pos = ThreatPos(p);
-                sr.transform.position = pos;
-                double tt = run.time - p.spawnT;
-                bool spins = p.type == ThreatType.Monitor || p.type == ThreatType.Phone || p.type == ThreatType.Suitcase;
-                sr.transform.rotation = spins ? Quaternion.Euler(0, 0, -(float)((p.ph + p.spin * tt + 0.8 * System.Math.Sin(p.wob * tt * 3)) * Mathf.Rad2Deg)) : Quaternion.identity;
-                // 예고: 커피는 "막지 말라"는 빨간 ×, 나머지는 "!" (웹: 맞는 자리 위 16px, 화면 안으로)
-                Vector3 mark = pos + ToWorld(0, 16);
-                if (p.type == ThreatType.Coffee) Cross(ref w, mark);
-                else WarnMark(ref w, mark, tt);
-            }
-
-            int f = 0;
-            foreach (var s in run.sparks)   // 패링 불꽃 (2px, 0.4초에 걸쳐 사라짐)
-            {
-                var sr = Pooled(fxPool, f++, 40, "Spark");
-                sr.sprite = WhiteSprite();
-                sr.color = UiKit.A(s.olive ? UiKit.Green : UiKit.Ink, Mathf.Clamp01((float)(1 - s.t / 0.4)));
-                sr.transform.localScale = Vector3.one * (2f / LogicalPerUnit);
-                sr.transform.rotation = Quaternion.identity;
-                sr.transform.position = W2U(s.x, s.y);
-            }
-
-            if (run.hurtFlash > 0)   // 맞으면 화면이 붉게 (웹 r.flash)
-            {
-                hurt.enabled = true;
-                hurt.color = UiKit.A(UiKit.Red, Mathf.Clamp01((float)(run.hurtFlash / 0.35)) * 0.35f);
-                hurt.transform.position = camCenter + Vector3.forward * 2;
-                hurt.transform.localScale = new Vector3(40, 24, 1);
-            }
-            if (run.flashing)   // 카메라 플래시 (무해): 하얗게 번쩍이고 사라진다
-            {
-                flash.enabled = true;
-                flash.color = new Color(0.96f, 0.96f, 0.94f, 0.85f * (float)run.FlashK);
-                flash.transform.position = camCenter + Vector3.forward * 1;
-                flash.transform.localScale = new Vector3(40, 24, 1);
-            }
+            DrawButtons();
+            Txt("v0.1 PoC · 승급의 계단 제작팀", 160, 172, T(6, "center", color: PalGray));
         }
 
-        /// <summary>층 바닥 띠: 화면 폭 전체, 윗면이 topY(Unity 논리 y), 두께 h px.</summary>
-        void Slab(int i, float topY, float h, Color body, Color top)
+        // ================================================================ 05-2 로비
+        void DrawIdCard(double x, double y, int rIdx)   // 05-2 요소 3: 목걸이(올리브 끈)에 걸린 사원증 카드
         {
-            var sr = Pooled(slabPool, i, -2, "FloorSlab");
-            sr.sprite = WhiteSprite(); sr.color = body;
-            sr.transform.localScale = new Vector3(22f, h / LogicalPerUnit, 1);   // 320px보다 넓게 (흔들려도 끝이 안 보이게)
-            sr.transform.position = new Vector3(cam.transform.position.x, (topY - h / 2) / LogicalPerUnit, 0);
-            var line = Pooled(slabTopPool, i, -1, "FloorSlabTop");
-            line.sprite = WhiteSprite(); line.color = top;
-            line.transform.localScale = new Vector3(22f, 1f / LogicalPerUnit, 1);
-            line.transform.position = new Vector3(cam.transform.position.x, (topY - 0.5f) / LogicalPerUnit, 0);
-        }
-
-        void WarnMark(ref int w, Vector3 at, double t)
-        {
-            var sr = Pooled(warnPool, w++, 30, "Warning");
-            sr.transform.rotation = Quaternion.identity;
-            sr.sprite = catalog ? catalog.Get("warning", "blink", null, t) : null;
-            if (!sr.sprite)
+            string rank = C.rankNames[rIdx];
+            Rect(x + 27, 0, 4, y - 6, "#6E7A49"); Rect(x + 43, 0, 4, y - 6, "#6E7A49");             // 목걸이 끈
+            Rect(x + 28, 0, 1, y - 6, PalGreen); Rect(x + 44, 0, 1, y - 6, PalGreen);
+            Rect(x + 29, y - 9, 16, 12, "#9AA0A8"); FrameRect(x + 29, y - 9, 16, 12, "#44484E");    // 집게
+            Rect(x, y, 74, 108, PalText); FrameRect(x, y, 74, 108, PalGray);
+            Rect(x + 1, y + 1, 72, 13, PalGreen); Rect(x + 30, y + 5, 14, 3, "#4E5733");             // 올리브 머리띠, 줄 구멍
+            Rect(x + 15, y + 19, 44, 48, "#3A3D43"); Rect(x + 18, y + 22, 38, 42, "#9AA0A8");        // 사진
+            DrawSprite("player", rank, "idle", time, x + 37, y + 64, new SO { scale = 1.6, fw = 16, fh = 28, color = RankColors[rIdx] });
+            string[,] rows = { { "NAME", "○○○" }, { "TITLE", rank }, { "DEPARTMENT", "총무팀" } };
+            for (int i = 0; i < 3; i++)
             {
-                sr.sprite = WhiteSprite();
-                sr.color = Mathf.FloorToInt(Time.time * 8) % 2 == 0 ? UiKit.Red : Color.clear;
-                sr.transform.localScale = new Vector3(10f / LogicalPerUnit, 14f / LogicalPerUnit, 1);
-            }
-            else { sr.color = Color.white; sr.transform.localScale = Vector3.one; }
-            sr.transform.position = ClampToView(at);
-        }
-
-        void Cross(ref int w, Vector3 at)   // 커피 위 빨간 × (막지 마세요)
-        {
-            for (int j = 0; j < 2; j++)
-            {
-                var sr = Pooled(warnPool, w++, 30, "Cross");
-                sr.sprite = WhiteSprite(); sr.color = UiKit.Red;
-                sr.transform.localScale = new Vector3(9f / LogicalPerUnit, 2f / LogicalPerUnit, 1);
-                sr.transform.rotation = Quaternion.Euler(0, 0, j == 0 ? 45 : -45);
-                sr.transform.position = ClampToView(at);
+                double yy = y + 73 + i * 11;
+                Txt(rows[i, 0], x + 5, yy, T(5, bold: true, color: Hex("#2A2C31"), shadow: false));
+                Txt(rows[i, 1], x + (rows[i, 0].Length > 5 ? 44 : 28), yy, T(5, color: PalGray, shadow: false));
+                Rect(x + 4, yy + 8, 66, 1, "#9AA0A8", 0.6);
             }
         }
-
-        Vector3 ClampToView(Vector3 p)   // 웹: clamp(x, 8, W - 8)
+        void DrawLobby()
         {
-            float half = (160f - 8f) / LogicalPerUnit, cx = cam.transform.position.x;
-            p.x = Mathf.Clamp(p.x, cx - half, cx + half);
-            return p;
+            // 컨셉 05-2: 형광등 천장의 파티션 사무실(배경 bg_lobby) 위에 층 표시, D-30, 사원증, 화이트보드 기록, 업무 시작
+            if (!DrawImg("bg_lobby", 0, 0, W, H, null)) { DrawImg("bg_zone1", 0, 0, W, H, PalBg); Rect(0, 0, W, H, PalBg, 0.5); }
+            int bestFloor = SaveData.BestFloor, rIdx = 0;
+            foreach (var f in C.promoteFloors) if (bestFloor >= f) rIdx++;
+            rIdx = Math.Min(rIdx, C.rankNames.Length - 1);
+            Rect(124, 3, 72, 13, PalBg, 0.92); FrameRect(124, 3, 72, 13, "#9AA0A8");                 // 1 층·직급
+            Txt("1F", 148, 9.5, T(8, "center", "middle", true));
+            Txt(C.rankNames[0], 172, 9.5, T(6, "center", "middle", color: Hex("#9AA0A8")));
+            Rect(248, 5, 64, 18, PalRed); FrameRect(248, 5, 64, 18, PalText); FrameRect(249, 6, 62, 16, "#6E2626");   // 2 D-30
+            Txt("D-" + Num(D(C.startDays)), 280, 14.5, T(11, "center", "middle", true));
+            DrawIdCard(12, 38, rIdx);                                                                // 3 사원증
+            Rect(244, 80, 68, 22, PalBg, 0.9); FrameRect(244, 80, 68, 22, PalGray);                  // 5 화이트보드 위 기록
+            Txt("최고 " + bestFloor + "F", 278, 87, T(7, "center", "middle", true));
+            Txt("무한 최고 " + SaveData.BestEndless + "F · 랭킹 오프라인", 278, 96, T(5, "center", "middle", color: Hex("#9AA0A8")));
+            DrawButtons();                                                                           // 4 업무 시작
         }
 
-        void DrawRival(Threat p, int k, ref int w)
-        {
-            // 층 바닥 위를 걸어 들어오고, 플레이어가 더 높이 있으면 계단을 따라 쫓아 오른다. 붙으면 플레이어 칸으로 덤벼 친다
-            var rp = run.RivalPos(p);
-            float left = (float)(p.impactT - run.time), leap = (float)StairsConfig.D(C.rivalLeap), x = (float)rp.x, y = (float)-rp.y;
-            string anim = "walk"; double at = p.phase == RivalPhase.Stand ? 0 : run.time - p.enterT;
-            if (p.locked && left < leap)
-            {
-                float u = 1 - left / leap;
-                x = Mathf.Lerp(x, playerPos.x + p.side * 12, u);
-                y = Mathf.Lerp(y, playerPos.y, u) + Mathf.Sin(u * Mathf.PI) * 8;
-                anim = "attack"; at = u * leap;
-            }
-            var sr = Pooled(threatPool, k, 20, "Threat");
-            sr.sprite = catalog ? catalog.Get("rival", anim, null, at) : null;
-            sr.color = Color.white;
-            sr.flipX = x > playerPos.x;
-            sr.transform.rotation = Quaternion.identity;
-            sr.transform.position = ToWorld(x, y - 1);
-            if (run.time >= p.spawnT) WarnMark(ref w, ToWorld(x, y + 35), run.time - p.spawnT);   // "!" 예고 (머리 위)
-        }
-
+        // ================================================================ 05-3 플레이
         string PlayerAnim()
         {
-            string s = "idle";
-            if (run.Ended) s = run.ended.promoted ? "proud" : "hit";
-            else if (run.hitTimer > 0) s = "hit";
-            else if (run.time >= run.parryStart[0] && run.time < run.parryEnd[0]) s = "parry_left";
-            else if (run.time >= run.parryStart[1] && run.time < run.parryEnd[1]) s = "parry_right";
-            else if (run.stepTimer > 0) s = "step";
-            if (catalog && !catalog.HasAnim("player", s)) s = "idle";   // 시트에 없는 동작은 서 있기로
-            if (animState != s) { animState = s; animStart = run.time; }
+            var r = run; string s = "idle";
+            if (r.Ended) s = r.ended.promoted ? "proud" : "hit";
+            else if (r.hitTimer > 0) s = "hit";
+            else if (r.time >= r.parryStart[0] && r.time < r.parryEnd[0]) s = "parry_left";
+            else if (r.time >= r.parryStart[1] && r.time < r.parryEnd[1]) s = "parry_right";
+            else if (r.stepTimer > 0) s = "step";
+            if (animState != s) { animState = s; animStart = r.time; }
             return s;
         }
 
-        SpriteRenderer Pooled(List<SpriteRenderer> pool, int i, int order, string name)
-        {
-            while (pool.Count <= i) pool.Add(NewRenderer(name, order));
-            pool[i].enabled = true;
-            return pool[i];
-        }
+        double PlayerScreenX() => run.PlayerScreenX;
 
-        Sprite ThreatSprite(Threat p)
+        void DrawPlayWorld()
         {
-            if (!catalog) return WhiteSprite();
-            switch (p.type)
+            var r = run;
+            int zone = StairLayout.ZoneOf(r.floor); bool practice = r.Mode == GameMode.Practice;
+            double stepH = D(C.stepH), stepW = D(C.stepW);
+            // 연습 모드: 계단 없는 평범한 사무실(로비 배경), 플레이어는 사무실 바닥에 선다
+            if (practice)
+            {   // 옆에서 본 사무실(bg_practice): 가구는 플레이어 크기, 발 높이에 바닥이 있어 경쟁 사원도 그 위를 걷는다
+                if (!DrawImg("bg_practice", 0, 0, W, H, null)) { DrawImg("bg_lobby", 0, 0, W, H, PalBg); Rect(0, PLAYER_Y + 2, W, H, "#3A3D42"); }
+                (int x, string n)[] props = { (30, "cooler"), (96, "plant"), (228, "boxes"), (296, "cabinet") };
+                foreach (var pr in props) DrawSprite("props", "default", pr.n, 0, pr.x, PLAYER_Y + 2, new SO { anchor = "bc", fw = 16, fh = 24, nofb = true });
+            }
+            else DrawImg("bg_zone" + zone, 0, 0, W, H, PalBg);
+            if (!practice && !(catalog && catalog.GetImage("bg_zone" + zone)))
             {
-                case ThreatType.Sticky: return catalog.Get("sticky", "fly", StickyColors[Mathf.Clamp(p.hp, 0, 5)], 0);
-                case ThreatType.Paper: return catalog.Get("projectiles", "document", null, run.time - p.spawnT);
-                default: return catalog.Get("projectiles", p.type.ToString().ToLowerInvariant(), null, 0);
+                // 아래로 흐르는 가로줄로 위로 오르는 느낌
+                double off = (-r.camY) % 24;
+                for (double y = -24; y < H + 24; y += 24) Rect(0, y + off, W, 1, PalGray, 0.25);
+            }
+            Rect(0, 0, W, H, PalBg, 0.15);
+
+            if (!practice)
+            {   // ---- 계단, 층 바닥, 소품, 난간 (연습 모드에는 없다)
+                int spf = C.stairsPerFloor;
+                string RAIL = new[] { "#4E5733", "#44484E", "#5C4F3B", "#5E2323", "#8A6A2E" }[zone - 1];
+                string[] PROPS = { "cooler", "boxes", "plant", "cabinet" };
+                // 층 바닥(콘크리트 슬래브)과 그 위 소품: 층이 바뀌는 칸 높이에 화면 끝까지 깐다
+                for (int i = (int)Math.Floor((r.steps - 6) / (double)spf) * spf; i <= r.steps + 14; i += spf)
+                {
+                    if (i <= 0) continue;
+                    double sy = PLAYER_Y + (-i * stepH - r.camY);
+                    if (sy > H + 10 || sy < -40) continue;
+                    uint h = (uint)((ulong)i * 2654435761UL);
+                    double cx = 160 + (r.Stairs.StairX(i) - r.camX);
+                    for (int k = 0; k < 2; k++)
+                    {
+                        int side = k == 0 ? -1 : 1;
+                        double px = cx + side * (64 + ((h >> (k * 8)) % 50));
+                        DrawSprite("props", "default", PROPS[(h >> (16 + k * 4)) % PROPS.Length], 0, px, sy, new SO { anchor = "bc", fw = 16, fh = 24, nofb = true });
+                    }
+                    Rect(0, sy, W, 7, "#4E5259"); Rect(0, sy, W, 1, "#7B8088"); Rect(0, sy + 7, W, 2, "#141518", 0.55);
+                }
+                // 계단 받침(stringer): 디딤판 아래를 계단 기울기대로 비스듬히 깎아, 아래가 뚫린 계단처럼 보이게 한다 (컨셉 05-3)
+                double tileW = stepW * 2, tileH = stepH;
+                string[] STR = { "#3A4226", "#33363C", "#463A2B", "#461A1A", "#5E4820" }, STR_EDGE = { "#2C3320", "#26282C", "#352C20", "#341313", "#463618" };
+                for (int i = r.steps + 14; i >= Math.Max(0, r.steps - 6); i--)
+                {
+                    double sx = 160 + (r.Stairs.StairX(i) - r.camX), sy = PLAYER_Y + (-i * stepH - r.camY);
+                    if (sy > H + 10 || sy < -30) continue;
+                    int d = Math.Sign(r.Stairs.StairX(i + 1) - r.Stairs.StairX(i)); if (d == 0) d = 1;
+                    double half = stepW / 2;
+                    for (int c = 0; c < half * 2 * PX; c++)
+                    {
+                        double x = sx - half + c / (double)PX, u = JsRound((tileH * 0.6 - d * (x + 0.5 / PX - sx) * (tileH / (half * 2))) * PX) / PX;
+                        Rect(x, sy + tileH, 1.0 / PX, u, STR[zone - 1]);
+                        Rect(x, sy + tileH + u - 1.0 / PX, 1.0 / PX, 1.0 / PX, STR_EDGE[zone - 1]);
+                    }
+                }
+                // 계단 디딤판
+                var sdef = catalog ? catalog.GetSheet("stairs") : null;
+                bool hasCrack = sdef != null && sdef.anims.Exists(a => a.name == "cracked"), hasWet = sdef != null && sdef.anims.Exists(a => a.name == "wet");
+                for (int i = r.steps + 14; i >= Math.Max(0, r.steps - 6); i--)
+                {
+                    double sx = 160 + (r.Stairs.StairX(i) - r.camX), sy = PLAYER_Y + (-i * stepH - r.camY);
+                    if (sy > H + 10 || sy < -10) continue;
+                    bool landing = i % spf == 0;
+                    // 금 간 계단: 위에 서 있으면 시간이 갈수록 흔들리고 붉어지며 부스러기가 떨어진다
+                    bool cracked = r.Stairs.IsCracked(i);
+                    double shake = cracked && i == r.steps ? r.crackT / D(C.crackTime) : 0;
+                    double jx = shake != 0 ? JsRound(Math.Sin(r.time * 70) * shake * 1.5 * PX) / PX : 0;
+                    bool wet = r.Stairs.IsWet(i);
+                    bool ok = DrawSprite("stairs", "zone" + zone, cracked && hasCrack ? "cracked" : wet && hasWet ? "wet" : "tile", time, sx + jx, sy, new SO { anchor = "tc", dw = tileW, dh = tileH, nofb = true });
+                    if (wet)
+                    {   // 전기: 예고 때는 전선 끝에서 불꽃이 튀고, 흐를 때는 물 위로 번개가 친다
+                        var shs = r.Stairs.Shock(r.time); double x0 = sx - stepW / 2, w = stepW;
+                        if (shs.live)
+                        {
+                            Rect(x0, sy - 2, w, 4, "#F2E678", 0.35);
+                            string c = Math.Floor(r.time * 30) % 2 != 0 ? "#FFF6B0" : "#9FE0FF";
+                            for (double x = 0; x < w; x += 1.0 / PX) Rect(x0 + x, sy - 1 + JsRound(Math.Sin((x + r.time * 40) * 3.1) * 1.5 * PX) / PX, 1.0 / PX, 1.0 / PX, c);
+                            Rect(x0 + ((r.time * 97) % w), sy - 6, 1.0 / PX, 5, c); Rect(x0 + ((r.time * 53 + 7) % w), sy - 5, 1.0 / PX, 4, c);
+                        }
+                        else if (shs.warn && Math.Floor(r.time * 20) % 2 != 0)
+                        {
+                            Rect(x0 + w * 0.82, sy - 3, 1.0 / PX, 1.0 / PX, "#FFE680"); Rect(x0 + w * 0.86, sy - 4, 1.0 / PX, 1.0 / PX, "#FFE680"); Rect(x0 + w * 0.78, sy - 2, 1.0 / PX, 1.0 / PX, "#FFE680");
+                        }
+                    }
+                    if (shake != 0)
+                    {
+                        Rect(sx - stepW / 2 + jx, sy, stepW, tileH, PalRed, 0.45 * shake);
+                        for (int d = 0; d < 4; d++) Rect(sx - stepW / 2 + ((d * 37 + r.steps * 11) % stepW) + jx, sy + tileH + ((r.time * 60 + d * 9) % 16), 1, 1, "#3A3D43");
+                    }
+                    if (!ok)
+                    {
+                        Rect(sx - tileW / 2, sy, tileW, tileH, landing ? PalRed : PalGray);
+                        Rect(sx - tileW / 2, sy, tileW, 2, landing ? PalText : PalGreen);
+                    }
+                    if (landing && i > 0) Txt((i / spf + 1) + "F", sx, sy + 8, T(6, "center", color: PalText));
+                }
+                // 난간: 칸마다 기둥, 이웃 칸 기둥끼리 손잡이로 잇는다 (아트 픽셀 단위로 그려 계단처럼 각지게)
+                for (int i = Math.Max(0, r.steps - 6); i < r.steps + 14; i++)
+                {
+                    double ax = 160 + (r.Stairs.StairX(i) - r.camX), ay = PLAYER_Y + (-i * stepH - r.camY);
+                    double bx = 160 + (r.Stairs.StairX(i + 1) - r.camX), by = ay - stepH;
+                    if (ay > H + 20 || ay < -20) continue;
+                    Rect(ax - 0.5, ay - 12, 1, 12, RAIL, 0.9);
+                    int n = Math.Max(1, (int)JsRound(Math.Max(Math.Abs(bx - ax), Math.Abs(by - ay)) * PX));
+                    for (int s = 0; s <= n; s++) Rect(JsRound((ax + (bx - ax) * s / n) * PX) / PX - 0.5, JsRound((ay - 12 + (by - ay) * s / n) * PX) / PX, 1, 1.0 / PX * 2, RAIL);
+                }
+            }
+            else
+            {   // 연습 모드: 발밑 그림자
+                Rect(PlayerScreenX() - 9, PLAYER_Y + 1, 18, 2, "#0A0B0D", 0.45);
+            }
+            // 경쟁 사원 (장식)
+            if (C.showRivalCameo && r.floor < C.rivalFromFloor && r.rivalIdx >= r.steps - 3 && r.rivalIdx <= r.steps + 14)
+            {
+                double sx = 160 + (r.Stairs.StairX(r.rivalIdx) - r.camX);
+                double sy = PLAYER_Y + (-r.rivalIdx * stepH - r.camY);
+                cv.globalAlpha = 0.75f;
+                DrawSprite("rival", "default", "walk", time, sx, sy + 1, new SO { fw = 14, fh = 26, color = PalRed, flip = r.Stairs.DirAt(r.rivalIdx) < 0 });
+                cv.globalAlpha = 1;
+            }
+            // 플레이어
+            double ppx = PlayerScreenX();
+            string anim = PlayerAnim();
+            var rc = RankColors[r.rankIdx];
+            DrawSprite("player", C.rankNames[r.rankIdx], anim, r.time - animStart, ppx, PLAYER_Y + 2,
+                new SO { fw = 16, fh = 28, color = rc, flip = r.facing < 0 && anim != "parry_left" && anim != "parry_right" });
+            // 투척물 + 예고. 월드 좌표 -> 화면 좌표 (경쟁 사원 발 위치)
+            Func<double, double> SX = qx => 160 + (qx - r.camX);
+            Func<double, double> SY = qy => PLAYER_Y + (qy - r.camY) + 1;
+            foreach (var l in r.leavers)
+            {
+                double k = (r.time - l.t0) / 0.5;
+                cv.globalAlpha = (float)Clamp(1 - k, 0, 1);
+                DrawSprite("rival", "default", "leave", r.time - l.t0, SX(l.wx) + l.side * k * 90, SY(l.wy), new SO { fw = 14, fh = 26, color = PalRed, flip = l.side < 0 });
+                cv.globalAlpha = 1;
+            }
+            double burst = D(C.suitcaseBurst), warnTime = D(C.warnTime), leap = D(C.rivalLeap);
+            foreach (var p in r.threats)
+            {
+                if (p.IsRival)
+                {
+                    // 층 바닥 위를 걸어 들어오고, 플레이어가 더 높이 있으면 계단을 따라 쫓아 오른다. 붙으면 플레이어 칸으로 덤벼 친다
+                    var rp = r.RivalPos(p); double left = p.impactT - r.time;
+                    double rx = SX(rp.x), ry = SY(rp.y), at0 = p.phase == RivalPhase.Stand ? 0 : r.time - p.enterT; string ranim = "walk";
+                    if (p.locked && left < leap)
+                    {
+                        double k = 1 - left / leap;
+                        rx = Lerp(rx, ppx + p.side * 12, k); ry = Lerp(ry, PLAYER_Y + 1, k) - Math.Sin(k * Math.PI) * 8; ranim = "attack";
+                    }
+                    DrawSprite("rival", "default", ranim, at0, rx, ry, new SO { fw = 14, fh = 26, color = PalRed, flip = rx > ppx });
+                    if (r.time >= p.spawnT)
+                    {
+                        bool wk = DrawSprite("warning", "default", "blink", r.time - p.spawnT, rx, ry - 35, new SO { anchor = "c", fw = 8, fh = 12, nofb = true });
+                        if (!wk && Math.Floor(time * 8) % 2 == 0) { Rect(rx - 5, ry - 42, 10, 14, PalRed); Txt("!", rx, ry - 35, T(10, "center", "middle", true, shadow: false)); }
+                    }
+                    continue;
+                }
+                if (r.time < p.spawnT) continue;                           // 모니터: 아직 형광등이 깜박이는 중
+                double prog = Clamp((r.time - p.spawnT) / warnTime, 0, 1), tt = r.time - p.spawnT;
+                double tx = ppx + p.side * 8, ty = PLAYER_Y - 16;          // 맞는 자리
+                double x, y;
+                if (p.bounce)
+                {   // 포스트잇: 튕겨 나갔다가 같은 쪽으로 돌아온다
+                    x = tx + p.side * 64 * Math.Sin(prog * Math.PI); y = ty - 26 * Math.Sin(prog * Math.PI);
+                }
+                else if (p.type == ThreatType.Suitcase)
+                {   // 아래에서 솟아 날아오다가 도중에 터진다
+                    double x0 = ppx + p.side * 80, y0 = H + 14, bx = ppx + p.side * 40, by = PLAYER_Y - 34;
+                    double u = Math.Min(1, prog / (1 - burst / warnTime));
+                    x = Lerp(x0, bx, u); y = Lerp(y0, by, u) - Math.Sin(Math.Pow(u, 0.7) * Math.PI) * 56;
+                }
+                else if (p.type == ThreatType.Phone)
+                {   // 화면 아래에서 솟아 꼭대기에서 잠깐 멈칫한 뒤 중력처럼 빨라지며 떨어진다
+                    double x0 = ppx + p.side * 80, y0 = H + 14;
+                    x = Lerp(x0, tx, prog); y = Lerp(y0, ty, prog) - Math.Sin(Math.Pow(prog, 0.7) * Math.PI) * 84;
+                }
+                else if (p.type == ThreatType.Monitor)
+                {   // 위층 창이 깨지며 70도 사선으로 떨어진다 (처음엔 느리고 중력처럼 빨라짐)
+                    double y0 = -20, x0 = tx + p.side * (ty - y0) / Math.Tan(D(C.monitorAngle) * Math.PI / 180), e = prog * (0.25 + 0.75 * prog);
+                    x = Lerp(x0, tx, e); y = Lerp(y0, ty, e);
+                }
+                else if (p.type == ThreatType.Paper)
+                {   // 던진 쪽에서 머리 위로 넘어가, 반대쪽에서 돌아와 맞는다
+                    double x0 = p.from < 0 ? -16 : W + 16, mx = ppx + p.side * 36, my = PLAYER_Y - 36;
+                    if (prog < 0.65) { double u = prog / 0.65; x = Lerp(x0, mx, u); y = Lerp(ty, my, u) - Math.Sin(u * Math.PI) * 14; }
+                    else { double v = (prog - 0.65) / 0.35; x = Lerp(mx, tx, v); y = Lerp(my, ty, v); }
+                }
+                else
+                {   // 결재판: 옆에서 날아온다
+                    double x0 = p.side < 0 ? -16 : W + 16;
+                    x = Lerp(x0, tx, prog); y = ty - Math.Sin(prog * Math.PI) * 6;
+                }
+                // 회전: 모니터·전화기는 불규칙하게 빙글빙글, 결재판은 납작한 판이 수평으로 도는 것처럼 폭이 줄었다 늘었다 한다
+                var so = new SO { anchor = "c", fw = 12, fh = 9, color = PalText, flip = p.side > 0 };
+                double at = r.time - p.spawnT;
+                if (p.type == ThreatType.Suitcase && r.time >= p.impactT - burst)
+                {   // 터졌다: 서류·결재판이 사방으로, 두 장은 플레이어에게
+                    double t0 = r.time - (p.impactT - burst);
+                    // 열린 가방은 덮개가 젖혀진 채 돌며 아래로 떨어진다
+                    DrawSprite("projectiles", "default", "suitcase_open", 0, x + p.side * 30 * t0, y - 30 * t0 + 160 * t0 * t0, new SO { anchor = "c", scale = 1.35, rot = p.ph + t0 * 5, fw = 12, fh = 9, color = Hex("#2E2A28") });
+                    for (int j = 0; j < 7; j++)
+                    {
+                        double ang = p.ph + j * 0.9; bool toMe = j < 2;
+                        double vx = toMe ? (tx - x) / burst : Math.Cos(ang) * 120, vy = toMe ? (ty - y) / burst : Math.Sin(ang) * 90 - 40;
+                        DrawSprite("projectiles", "default", p.debris, 0, x + vx * t0, y + vy * t0 + (toMe ? 0 : 120 * t0 * t0), new SO { anchor = "c", scale = 0.7, rot = ang + t0 * 9, fw = 8, fh = 6, color = PalText });
+                    }
+                    if (t0 < 0.08) Rect(x - 10, y - 10, 20, 20, PalText, 0.8 - t0 * 10);   // 터지는 빛
+                    continue;
+                }
+                if (p.type == ThreatType.Monitor || p.type == ThreatType.Phone || p.type == ThreatType.Suitcase) { so.rot = p.ph + p.spin * tt + 0.8 * Math.Sin(p.wob * tt * 3); at = 0; }
+                if (p.type == ThreatType.Suitcase) so.scale = 1.35;             // 서류가방은 크게 (서류·결재판과 헷갈리지 않게)
+                else if (p.type == ThreatType.Clipboard || p.type == ThreatType.Coffee || p.type == ThreatType.Sticky)
+                {
+                    double c = Math.Cos(tt * 13 + p.ph); so.sx = (c < 0 ? -1 : 1) * Math.Max(0.14, Math.Abs(c)); so.sy = 0.82; so.rot = 0.12 * p.side; at = 0;
+                }
+                if (p.type == ThreatType.Sticky) DrawSprite("sticky", StickyColors[Mathf.Clamp(p.hp, 0, 5)], "fly", at, x, y, so);   // 색 = 남은 횟수
+                else DrawSprite("projectiles", "default", p.type == ThreatType.Paper ? "document" : p.type.ToString().ToLowerInvariant(), at, x, y, so);
+                double wx = Clamp(x, 8, W - 8), wy = y - 16;
+                if (p.type == ThreatType.Coffee) { Txt("×", wx, wy, T(11, "center", "middle", true, PalRed)); continue; }   // 막지 말라는 표시
+                bool wk2 = DrawSprite("warning", "default", "blink", r.time - p.spawnT, wx, wy, new SO { anchor = "c", fw = 8, fh = 12, nofb = true });
+                if (!wk2 && Math.Floor(time * 8) % 2 == 0)
+                {
+                    Rect(wx - 5, wy - 7, 10, 14, PalRed);
+                    Txt("!", wx, wy, T(10, "center", "middle", true, shadow: false));
+                }
+            }
+            // 효과
+            foreach (var s in r.sparks) Rect(s.x, s.y, 2, 2, s.olive ? PalGreen : PalText, 1 - s.t / 0.4);
+            foreach (var t in r.texts)
+            {
+                cv.globalAlpha = (float)Clamp(1 - t.t / 0.8, 0, 1);
+                Txt(t.s, t.x, t.y, T(9, "center", bold: true, color: t.color == "green" ? PalGreen : t.color == "red" ? PalRed : PalText));
+                cv.globalAlpha = 1;
+            }
+            // 모니터 예고: 형광등이 불규칙하게 깜박인다 (화면이 어두워졌다 밝아짐, 떨어질 쪽 위가 더 깜박임)
+            double[] fl = { 0.5, 0.05, 0.38, 0, 0.55, 0.12, 0.3, 0 };
+            foreach (var p in r.threats)
+            {
+                if (p.type != ThreatType.Monitor || p.done || r.time > p.spawnT + 0.12) continue;
+                double f = fl[(int)Math.Floor((r.time - p.warnT) * 24) % 8];
+                Rect(0, 0, W, H, "#08090B", f);
+                Rect(ppx + p.side * 52 - 30, 0, 60, 3, PalText, Math.Max(0, 0.22 - f * 0.35));
+            }
+            if (r.hurtFlash > 0) Rect(0, 0, W, H, PalRed, Clamp(r.hurtFlash / 0.35, 0, 1) * 0.35);
+            // 카메라 플래시: 화면이 하얗게 번쩍이고, 터진 자리에 빛줄기가 남는다 (막을 수 없고 피해도 없다)
+            if (r.flashing)
+            {
+                double k = r.FlashK, fx = r.flashX, fy = r.flashY;
+                Rect(0, 0, W, H, "#F5F5F0", 0.85 * k);
+                Rect(fx - 14 * k - 1, fy, 28 * k + 2, 1, "#FFFFFF", k); Rect(fx, fy - 14 * k - 1, 1, 28 * k + 2, "#FFFFFF", k);
+                Rect(fx - 3, fy - 3, 6, 6, "#FFFFFF", k);
             }
         }
 
-        // 날아오는 길: 결재판·커피·포스트잇은 옆에서 곧게, 서류는 반대쪽에서 머리 위로, 전화기·서류가방은 아래에서 포물선, 모니터는 위에서 70도로
-        Vector3 ThreatPos(Threat p)
+        void Plate(double x, double y, double w, double h)   // 05-3 컨셉의 이중 테두리 명판
         {
-            float u = Mathf.Clamp01((float)((run.time - p.spawnT) / System.Math.Max(0.01, p.impactT - p.spawnT)));
-            Vector2 hit = playerPos + new Vector2(p.side * 8, 16);
-            Vector2 start; float lift = 0;
-            switch (p.type)
-            {
-                case ThreatType.Paper: start = hit + new Vector2(p.from * 180, 10); lift = 60; break;
-                case ThreatType.Phone: case ThreatType.Suitcase: start = hit + new Vector2(p.side * 120, -110); lift = 70; break;
-                case ThreatType.Monitor: start = hit + new Vector2(p.side * 40, 110); break;
-                default: start = hit + new Vector2(p.side * 180, 0); break;
+            Rect(x, y, w, h, PalBg, 0.92); FrameRect(x, y, w, h, "#9AA0A8"); FrameRect(x + 2, y + 2, w - 4, h - 4, "#5A5F66");
+        }
+        void DrawKeyCap(double x, double y, int idx, string iconName, string label)
+        {
+            bool lit = time < padUntil[idx];
+            Rect(x, y, 18, 18, lit ? PalGreen : PalBg, lit ? 1 : 0.85);
+            FrameRect(x, y, 18, 18, lit ? PalText : Hex("#9AA0A8"));
+            bool ok = DrawSprite("hud_icons", "default", iconName, time, x + 3, y + 3, new SO { anchor = "tl", dw = 12, dh = 12, nofb = true });
+            if (!ok) Txt(label, x + 11, y + 11, T(10, "center", "middle", true, lit ? PalBg : PalText, false));
+        }
+        void DrawHud()
+        {
+            var r = run;
+            // 1 층수·직급 명판
+            Plate(6, 5, 86, 19);
+            DrawBadgeIcon(10, 9, 12);
+            if (r.Mode == GameMode.Practice)
+            {   // 연습: 층 대신 모드 이름, 일수·하트 대신 막은 수와 맞은 수
+                Txt("연습 모드", 56, 14.5, T(9, "center", "middle", true));
+                Plate(W - 92, 5, 86, 19);
+                Txt("막음 " + r.parries + " · 맞음 " + r.hits, W - 49, 14.5, T(8, "center", "middle", true));
+                Txt("ESC → 메인으로", W - 49, 31, T(6, "center", "middle", color: Hex("#9AA0A8")));
             }
-            if (p.bounce) start = hit + new Vector2(p.side * 70, 20);   // 포스트잇: 튕겨 나갔다가 같은 쪽으로 돌아온다
-            Vector2 at = Vector2.Lerp(start, hit, u) + Vector2.up * (lift * 4 * u * (1 - u));
-            return ToWorld(at.x, at.y);
+            else
+            {
+                Txt((r.Mode == GameMode.Endless ? "∞ " : "") + r.floor + "F · " + C.rankNames[r.rankIdx], 56, 14.5, T(r.Mode == GameMode.Endless ? 8 : 9, "center", "middle", true));
+                // 2 남은 일수 명판 + 하트
+                int dayInt = (int)Math.Ceiling(r.days);
+                bool low = r.days <= 7;
+                Plate(W - 92, 5, 86, 19);
+                bool ok = DrawSprite("hud_icons", "default", "calendar", 0, W - 88, 9, new SO { anchor = "tl", dw = 12, dh = 12, nofb = true });
+                if (!ok) Rect(W - 88, 9, 12, 12, PalGray);
+                Txt("D-" + dayInt, W - 44, 14.5, T(10, "center", "middle", true, low ? PalRed : PalText));
+                Rect(W - 89, 21, 80 * Clamp(r.days / D(C.maxDays), 0, 1), 1, low ? PalRed : PalGreen);   // 일수 게이지
+                for (int i = 0; i < C.maxHearts; i++) DrawHeart(W - 8 - (C.maxHearts - i) * 13, 27, i < r.hearts);
+            }
+            // 콤보 (가운데 위, 금색): COMBO = 연속으로 막은 횟수, 그 아래 점수 배수 (3연속마다 ×1, 최대 ×10)
+            if (r.combo > 0)
+            {
+                Txt(r.combo + " COMBO", 160, 8, T(10, "center", bold: true, color: Hex("#E3B65C")));
+                Txt("점수 ×" + r.mult, 160, 21, T(6, "center", bold: true, color: r.mult >= C.maxMult ? PalRed : PalText));
+            }
+            // 4 조작 키 (아래 가운데)
+            DrawKeyCap(114, 158, 0, "arrow_left", "←");
+            DrawKeyCap(136, 158, 1, "arrow_right", "→");
+            DrawKeyCap(166, 158, 2, "shield_q", "Q");
+            DrawKeyCap(188, 158, 3, "shield_e", "E");
+        }
+        void DrawPlay()
+        {
+            var r = run;
+            float ox = 0, oy = 0;
+            if (r.shake > 0) { ox = JsRound((Random.value * 2 - 1) * 2); oy = JsRound((Random.value * 2 - 1) * 2); }
+            cv.Save(); cv.Translate(ox, oy);
+            DrawPlayWorld();
+            cv.Restore();
+            DrawHud();
         }
 
-        void DrawArc(int i, bool live)
+        // ================================================================ 05-4 일시정지 / 설정 / 조작법
+        void DrawPause()
         {
-            int k = 0; while (k < arcPool.Count && arcPool[k].enabled) k++;
-            if (k == arcPool.Count)
+            DrawPlay();
+            Rect(0, 0, W, H, PalBg, 0.65);                       // 5 반투명 오버레이
+            Rect(80, 38, 160, 100, PalBg, 0.95); FrameRect(80, 38, 160, 100, PalGray);
+            Txt("일시정지", 160, 48, T(12, "center", bold: true));   // 1 제목
+            DrawButtons();
+        }
+        void DrawSettings()
+        {
+            Rect(0, 0, W, H, PalBg, 0.6);
+            Rect(50, 22, 220, 136, PalBg, 0.97); FrameRect(50, 22, 220, 136, PalGray);
+            Txt("설정", 160, 27, T(10, "center", bold: true));
+            Txt("사운드", 62, 45, T(8));
+            Txt("볼륨", 62, 63, T(8));
+            Txt(Math.Round(audioDirector.vol * 100, MidpointRounding.AwayFromZero) + "%", 214, 63, T(8, "center"));
+            Txt("화면", 62, 81, T(8));
+            Txt("배율 ×" + Num(scale) + " (창 크기에 맞춰 자동)", 62, 96, T(7, color: PalGreen));
+            Txt("조작법", 62, 107, T(8));
+            Txt("← → 이동 · Q E 패링 · ESC 일시정지 (키 변경 불가)", 62, 124, T(6, color: PalGray));
+            DrawButtons();
+        }
+        void DrawHelp()
+        {
+            Rect(0, 0, W, H, PalBg, 0.7);
+            Rect(50, 16, 220, 150, PalBg, 0.97); FrameRect(50, 16, 220, 150, PalGray);
+            Txt("조작법", 160, 21, T(10, "center", bold: true));
+            string[,] rows = { { "← →", "다음 계단 방향으로 한 칸 오르기" }, { "Q", "왼쪽 패링" }, { "E", "오른쪽 패링" }, { "ESC", "일시정지" }, { "Enter", "메뉴 결정 (방향키 선택·클릭)" } };
+            for (int i = 0; i < rows.GetLength(0); i++)
             {
-                var lr = new GameObject("ShockArc").AddComponent<LineRenderer>();
-                lr.transform.SetParent(transform, false);
-                lr.material = new Material(Shader.Find("Sprites/Default"));
-                lr.positionCount = 6; lr.sortingOrder = 5; lr.useWorldSpace = true;
-                arcPool.Add(lr);
+                double y = 34 + i * 13;
+                Rect(60, y, 36, 13, PalGray); FrameRect(60, y, 36, 13, PalText);
+                Txt(rows[i, 0], 78, y + 7, T(7, "center", "middle", true));
+                Txt(rows[i, 1], 104, y + 7, T(7, bas: "middle"));
             }
-            var a = arcPool[k];
-            a.enabled = true;
-            a.startWidth = a.endWidth = live ? 0.08f : 0.04f;
-            a.startColor = a.endColor = live ? new Color(0.85f, 0.95f, 1f) : new Color(1f, 0.75f, 0.3f);
-            double x0 = run.Stairs.StairX(i) - 10, y = StairUY(i) - 2;
-            for (int j = 0; j < 6; j++)
-                a.SetPosition(j, ToWorld(x0 + j * 4, y + (live ? Random.Range(-3f, 3f) : (j % 2) * 2)));
+            Txt("\"!\" 1초 뒤 도착 · 도착 직전 0.2초 안에 맞는 쪽 키 (소리의 박)", 160, 101, T(6, "center", color: PalGreen));
+            Txt("11층~ 경쟁 사원 · 커피(× 표시: 막으면 하트 -1)", 160, 108, T(6, "center", color: PalRed));
+            Txt("21층~ 모니터 · 금 간 계단(1.5초) · 30층~ 젖은 계단(3초마다 감전)", 160, 115, T(6, "center", color: PalRed));
+            Txt("31층~ 전화기 · 41층~ 서류(반대쪽) · 61층~ 포스트잇(색=횟수)", 160, 122, T(6, "center", color: PalGreen));
+            Txt("61층~ 카메라 플래시(무해) · 71층~ 서류가방(터질 때 막기)", 160, 129, T(6, "center", color: PalGreen));
+            Txt("틀린 방향·놓친 공격은 하트 -1, 새 층마다 하트 +1", 160, 136, T(6, "center", color: PalText));
+            DrawButtons();
         }
 
-        static Sprite white;
-        static Sprite WhiteSprite()
+        // ================================================================ 05-5 결과
+        void DrawVerdict(double x, double y, double w, double h, bool promo, string subtext)
         {
-            if (white) return white;
-            var t = new Texture2D(4, 4); var px = new Color[16]; for (int i = 0; i < 16; i++) px[i] = Color.white; t.SetPixels(px); t.Apply();
-            return white = Sprite.Create(t, new Rect(0, 0, 4, 4), new Vector2(0.5f, 0.5f), 4);
+            cv.Save();
+            cv.Translate((float)(x + w / 2), (float)(y + h / 2)); cv.Rotate(-0.04f);
+            Rect(-w / 2, -h / 2, w, h, promo ? PalGreen : PalRed);
+            FrameRect(-w / 2 + 2, -h / 2 + 2, w - 4, h - 4, promo ? PalBg : PalText);
+            Txt(promo ? "승급" : "구조조정 대상", 0, -6, T(18, "center", "middle", true, promo ? PalBg : PalText, false));
+            Txt(subtext, 0, 12, T(7, "center", "middle", false, promo ? PalBg : PalText, false));
+            cv.Restore();
+        }
+        string CauseText(RunResult r) => r.cause == "days" ? "남은 일수 소진" : r.cause == "cracked" ? "금 간 계단이 무너짐" : r.cause == "shock" ? "젖은 계단에서 감전" : "하트 소진";
+        List<(string a, string b)> ResultRows()
+        {
+            var r = result;
+            return new List<(string, string)>
+            {
+                ("도달 층수", r.floor + "F"),
+                ("직급", r.promoted ? C.rankNames[r.rankIdx - 1] + " → " + C.rankNames[r.rankIdx] : C.rankNames[r.rankIdx]),
+                ("점수", r.score.ToString()),
+                ("최고 콤보", r.maxCombo + "회 (점수 ×" + r.maxMult + ")"),
+                ("전체 랭킹", "#-- (오프라인)"),
+            };
+        }
+        void DrawResult()
+        {
+            // 컨셉 05-5: 어둡게 가라앉은 사무실(bg_result), 위 가운데 판정 판, 왼쪽 큰 캐릭터, 가운데 어두운 인사 평가 표
+            var r = result; bool promo = r.promoted;
+            if (!DrawImg("bg_result", 0, 0, W, H, null)) { DrawImg("bg_zone1", 0, 0, W, H, PalBg); Rect(0, 0, W, H, PalBg, 0.75); }
+            // 1 상자를 들고 걸어 나가는 큰 모습 (구조조정은 회색 실루엣, 승급은 제 색으로 뿌듯한 자세)
+            string rk = C.rankNames[r.rankIdx];
+            DrawSprite("player", rk, promo ? "proud" : "box_exit", time, 62, 176,
+                new SO { scale = 4.6, fw = 16, fh = 28, color = RankColors[r.rankIdx], flip = !promo, gray = !promo });
+            // 3 위 가운데 판정 판. 승급도 구조조정도 도장처럼 크게 떨어져 쾅 찍힌다 (화면 흔들림, 잉크 튐)
+            double rt = time - resultT0, k = Clamp((rt - 0.15) / 0.22, 0, 1);
+            if (k >= 1 && !resultStamped) { resultStamped = true; Sfx("sfx_hit"); }
+            double shake = rt > 0.37 && rt < 0.62 ? Math.Sin(rt * 90) * (0.62 - rt) * 10 : 0;
+            if (k > 0)
+            {
+                cv.Save(); cv.Translate((float)(160 + shake), 11); float s = (float)(1 + (1 - k) * (1 - k) * 1.8); cv.Scale(s, s); cv.Rotate((float)((1 - k) * -0.12)); cv.Translate(-160, -11);
+                cv.globalAlpha = (float)k;
+                Rect(64, 0, 192, 22, promo ? PalGreen : PalRed); FrameRect(64, 0, 192, 22, PalText); FrameRect(66, 2, 188, 18, promo ? "#4E5733" : "#6E2626");
+                Txt(promo ? "승급" : "구조조정 대상", 160, 11, T(13, "center", "middle", true));
+                cv.Restore(); cv.globalAlpha = 1;
+            }
+            if (rt > 0.37 && rt < 1.1)
+            {   // 잉크 튐 (승급은 올리브)
+                double f = 1 - (rt - 0.37) / 0.73;
+                int[,] ink = { { 58, 6 }, { 262, 14 }, { 70, 24 }, { 250, 2 }, { 150, 26 }, { 184, 25 } };
+                for (int i = 0; i < 6; i++) Rect(ink[i, 0] + (i % 2 == 1 ? 1 : -1) * (1 - f) * 6, ink[i, 1], 2, 2, promo ? PalGreen : PalRed, 0.8 * f);
+            }
+            Txt(promo ? C.rankNames[r.rankIdx - 1] + " → " + rk + " · " + r.floor + "층 도달 (PoC 종료)"
+                      : ((r.mode == GameMode.Endless ? "무한 모드 · " + r.floor + "F 도달 (최고 " + SaveData.BestEndless + "F) · " : "") + CauseText(r)),
+                160, 28, T(6, "center", "middle", color: Hex("#9AA0A8")));
+            // 4 인사 평가 결과 표 (칸마다 테두리, 값은 올리브 글자, 최고 콤보는 흰 테두리)
+            Rect(112, 34, 140, 100, "#18191C", 0.95); FrameRect(112, 34, 140, 100, "#9AA0A8"); FrameRect(114, 36, 136, 96, PalGray);
+            Rect(120, 41, 124, 12, "#141518"); FrameRect(120, 41, 124, 12, "#9AA0A8");
+            Txt("인사 평가 결과", 182, 47.5, T(7, "center", "middle", true));
+            (string a, string b, bool hi)[] rows =
+            {
+                ("도달 층수", r.floor + "F", false), ("직급", promo ? C.rankNames[r.rankIdx - 1] + "→" + rk : rk, false), ("점수", r.score.ToString(), false),
+                ("최고 콤보", r.maxCombo + "회 ×" + r.maxMult, true), ("전체 랭킹", "#--", false),
+            };
+            for (int i = 0; i < rows.Length; i++)
+            {
+                double y = 57 + i * 15;
+                Rect(120, y, 76, 12, "#141518"); FrameRect(120, y, 76, 12, "#6E737A");
+                Txt(rows[i].a, 124, y + 6.5, T(6, bas: "middle", color: Hex("#C9CCD1"), shadow: false));
+                Rect(200, y, 44, 12, "#141518"); FrameRect(200, y, 44, 12, rows[i].hi ? PalText : PalGreen);
+                Txt(rows[i].b, 222, y + 6.5, T(6, "center", "middle", true, rows[i].hi ? PalText : Hex("#A9B57C"), false));
+            }
+            if (r.newBest) Txt("NEW", 246, 64, T(6, "right", bold: true, color: PalRed));
+            // 구조조정 팁: 도장이 찍힌 뒤 떠오른다
+            if (!promo)
+            {
+                double a = Clamp((rt - 0.5) / 0.3, 0, 1);
+                Rect(40, 137, 240, 14, "#141518", 0.94 * a);   // rect는 알파를 받으면 끝에 1로 되돌리므로 먼저 그린다
+                cv.globalAlpha = (float)a; FrameRect(40, 137, 240, 14, "#E3B65C");
+                Txt("TIP", 50, 144, T(6, "center", "middle", true, Hex("#E3B65C")));
+                Txt(Tips.TryGetValue(r.tip ?? "", out var tip) ? tip : Tips["clipboard"], 164, 144, T(6, "center", "middle", color: PalText));
+                cv.globalAlpha = 1;
+            }
+            // 2, 5 버튼
+            DrawButtons();
+            if (time < toastUntil) Txt(toastText, 197, 174, T(6, "center", color: PalGreen));
+        }
+
+        // 기록 공유: 결과 카드를 640x360 PNG로 저장한다 (웹은 stairs_result.png를 내려받는다)
+        string DoShare()
+        {
+            if (result == null) return null;
+            string path = null;
+            var rt = RenderTexture.GetTemporary((int)W * 2, (int)H * 2, 0, RenderTextureFormat.ARGB32);
+            var prevRt = RenderTexture.active;
+            float prevScale = scale;
+            try
+            {
+                RenderTexture.active = rt;
+                GL.Clear(true, true, Color.clear);
+                cv.Begin(new Rect(0, 0, W * 2, H * 2), 2);
+                bool promo = result.promoted;
+                Rect(0, 0, W, H, PalBg);
+                Txt("승급의 계단", 160, 12, T(16, "center", bold: true));
+                DrawVerdict(60, 38, 200, 42, promo, promo ? C.rankNames[result.rankIdx - 1] + " → " + C.rankNames[result.rankIdx] + " · " + result.floor + "층 승급" : (result.cause == "days" ? "남은 일수 소진" : "하트 소진"));
+                Rect(60, 92, 200, 72, PalBg); FrameRect(60, 92, 200, 72, PalGray);
+                Txt("인사 평가표", 68, 95, T(8, bold: true, color: PalGreen));
+                var rows = ResultRows();
+                for (int i = 0; i < rows.Count; i++)
+                {
+                    Txt(rows[i].a, 68, 108 + i * 10, T(8));
+                    Txt(rows[i].b, 252, 108 + i * 10, T(8, "right"));
+                }
+                Txt("v0.1 PoC", 160, 168, T(7, "center", color: PalGray));
+                cv.End();
+                var tex = new Texture2D(rt.width, rt.height, TextureFormat.RGBA32, false);
+                tex.ReadPixels(new Rect(0, 0, rt.width, rt.height), 0, 0);
+                tex.Apply();
+                string dir = Environment.GetFolderPath(Environment.SpecialFolder.MyPictures);
+                if (string.IsNullOrEmpty(dir) || !Directory.Exists(dir)) dir = Application.persistentDataPath;
+                path = Path.Combine(dir, "stairs_result.png");
+                File.WriteAllBytes(path, tex.EncodeToPNG());
+                Destroy(tex);
+                Toast("결과 이미지를 저장했습니다");
+                Debug.Log("[stairs] share → " + path);
+            }
+            catch (Exception e) { Toast("이미지 저장에 실패했습니다"); Debug.LogWarning("[stairs] share failed: " + e.Message); path = null; }
+            finally { cv.SetScale(prevScale); RenderTexture.active = prevRt; RenderTexture.ReleaseTemporary(rt); }
+            return path;
         }
     }
 }

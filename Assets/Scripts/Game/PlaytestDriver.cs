@@ -1,6 +1,8 @@
-// 자동 플레이테스트. 플레이어(또는 에디터)를 -stairsPlaytest <폴더> 로 실행했을 때만 켜진다.
-// 타이틀 → 로비 → 보통 모드(봇, 100층까지) → 일시정지 → 결과(승급) → 지는 판(가만히) → 결과(구조조정) → 연습 → 무한 순서로
-// 화면마다 스크린샷을 찍고, 로그의 오류·예외와 판 결과를 <폴더>/playtest_log.txt 에 남긴 뒤 끝낸다.
+// 자동 플레이테스트. 플레이어(또는 에디터)를 -stairsPlaytest <폴더> 로 실행했을 때만 켜진다 (-seed 1 과 같이 쓴다).
+// 웹 판을 같은 순서로 찍는 Tools~/web_shots.py와 짝을 이룬다: 같은 seed, 같은 계단 수에서 찍어 화면을 맞대어 본다.
+//   타이틀 → 설정 → 조작법 → 로비 → 보통 모드 봇(seed+0, 계단 20·70·180칸, 200칸에서 일시정지, 390·450칸) → 결과(승급) → 기록 공유
+//   → 가만히 있는 판(seed+1) → 결과(구조조정) → 연습(seed+2) → 무한(seed+3, 25층)
+// 로그의 오류·예외와 판 결과를 <폴더>/playtest_log.txt 에 남긴 뒤 끝낸다.
 // 빌드: Stairs.EditorTools.StairsAssetImporter.BuildPlaytestPlayer (docs/UNITY_PORT.md 참고)
 using System.Collections;
 using System.IO;
@@ -15,7 +17,6 @@ namespace Stairs.Game
         string dir;
         readonly StringBuilder log = new StringBuilder();
         int errors, shots;
-        const float Speed = 3f;   // 봇 판을 빨리 돌린다 (Core는 1/60초 고정 진행이라 결과는 같다)
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
         static void Boot()
@@ -43,48 +44,74 @@ namespace Stairs.Game
             Directory.CreateDirectory(dir);
             var gc = FindFirstObjectByType<GameController>();
             if (!gc) { log.AppendLine("GameController 없음"); Finish(); yield break; }
-            Line("screen " + Screen.width + "x" + Screen.height + ", catalog " + (gc.catalog ? "ok" : "없음") + ", font " + (UiKit.font ? UiKit.font.name : "없음"));
+            if (System.Array.IndexOf(System.Environment.GetCommandLineArgs(), "-stairsAudioCheck") >= 0)
+            {   // 소리만 확인: 타이틀에서 0.5초마다 출력 크기와 소리별 재생 위치
+                for (int i = 0; i < 8; i++) { yield return new WaitForSecondsRealtime(0.5f); Line(AudioReport(gc, "타이틀 " + (i + 1) * 0.5f + "s")); }
+                gc.bot = true; gc.StartRun(GameMode.Normal);
+                for (int i = 0; i < 4; i++) { yield return new WaitForSecondsRealtime(0.5f); Line(AudioReport(gc, "플레이 " + (i + 1) * 0.5f + "s")); }
+                Finish(); yield break;
+            }
+            Line("screen " + Screen.width + "x" + Screen.height + ", catalog " + (gc.catalog ? "ok" : "없음") + ", font " + gc.FontName);
             yield return new WaitForSecondsRealtime(1.5f); yield return Shot("01_title");
-            gc.GoLobby();
-            yield return new WaitForSecondsRealtime(1f); yield return Shot("02_lobby");
+            Line(AudioReport(gc, "타이틀"));
+            gc.OpenSettings(); yield return new WaitForSecondsRealtime(0.3f); yield return Shot("02_settings");
+            gc.OpenHelp(); yield return new WaitForSecondsRealtime(0.3f); yield return Shot("03_help");
+            gc.CloseHelp(); gc.CloseSettings();
+            gc.GoLobby(); yield return new WaitForSecondsRealtime(0.5f); yield return Shot("04_lobby");
 
-            // 보통 모드: 봇이 100층까지
-            gc.bot = true; gc.StartRun(GameMode.Normal); Time.timeScale = Speed;
-            yield return new WaitForSecondsRealtime(1.2f); yield return Shot("03_play_1F");
-            yield return Until(() => gc.run == null || gc.run.floor >= 12 && gc.run.threats.Exists(t => t.IsRival && t.phase == RivalPhase.Climb), 60);
-            yield return Shot("04_play_rival_climb");
-            yield return Until(() => gc.run == null || gc.run.floor >= 32 && gc.run.Shock.live, 60);
-            yield return Shot("05_play_wet_shock");
-            gc.PauseGame(); yield return new WaitForSecondsRealtime(0.5f); yield return Shot("06_pause");
+            // 보통 모드: 봇이 100층까지 (seed+0)
+            gc.bot = true; gc.StartRun(GameMode.Normal);
+            yield return Steps(gc, 20); yield return Shot("05_play_steps20");
+            Line(AudioReport(gc, "플레이"));
+            yield return Steps(gc, 70); yield return Shot("06_play_steps70");
+            yield return Steps(gc, 180); yield return Shot("07_play_steps180");
+            yield return Steps(gc, 200); gc.PauseGame(); yield return new WaitForSecondsRealtime(0.3f); yield return Shot("08_pause");
             gc.Resume();
-            yield return Until(() => gc.run == null || gc.run.floor >= 65 && gc.run.flashing, 60);
-            yield return Shot("07_play_camera_flash");
-            yield return Until(() => gc.screen == GameController.Screen.Result, 120);
-            Time.timeScale = 1;
+            yield return Steps(gc, 390); yield return Shot("09_play_steps390");
+            yield return Steps(gc, 450); yield return Shot("10_play_steps450");
+            yield return Until(() => gc.screen == GameController.Screen.Result, 150);
             Line("보통 봇 판: " + Describe(gc.result));
-            yield return new WaitForSecondsRealtime(0.25f); yield return Shot("08_result_promoted_stamp");
-            yield return new WaitForSecondsRealtime(1.5f); yield return Shot("09_result_promoted");
+            yield return new WaitForSecondsRealtime(0.25f); yield return Shot("11_result_promoted_stamp");
+            yield return new WaitForSecondsRealtime(1.5f); yield return Shot("12_result_promoted");
+            Line("기록 공유: " + (gc.ShareResult() ?? "실패"));
+            yield return new WaitForSecondsRealtime(0.3f); yield return Shot("13_result_share_toast");
 
-            // 지는 판: 아무것도 하지 않으면 하트가 다 떨어진다
+            // 지는 판: 아무것도 하지 않으면 하트가 다 떨어진다 (seed+1)
             gc.bot = false; gc.StartRun(GameMode.Normal);
             yield return Until(() => gc.screen == GameController.Screen.Result, 40);
             Line("가만히 있는 판: " + Describe(gc.result));
-            yield return new WaitForSecondsRealtime(1.5f); yield return Shot("10_result_fired");
+            yield return new WaitForSecondsRealtime(1.5f); yield return Shot("14_result_fired");
 
-            // 연습 모드, 무한 모드 (봇)
-            gc.bot = true; gc.StartRun(GameMode.Practice); Time.timeScale = Speed;
-            yield return new WaitForSecondsRealtime(3f); yield return Shot("11_practice");
+            // 연습 모드(seed+2), 무한 모드(seed+3), 봇
+            gc.bot = true; gc.StartRun(GameMode.Practice);
+            yield return new WaitForSecondsRealtime(3f); yield return Shot("15_practice");
             Line("연습: 막음 " + gc.run.parries + " 맞음 " + gc.run.hits);
             gc.StartRun(GameMode.Endless);
             yield return Until(() => gc.run == null || gc.run.floor >= 25, 60);
-            yield return Shot("12_endless");
+            yield return Shot("16_endless_25F");
             Line("무한: " + gc.run.floor + "F 점수 " + gc.run.score + " 하트 " + gc.run.hearts);
-            Time.timeScale = 1;
             gc.QuitToLobby();
-            yield return new WaitForSecondsRealtime(0.8f); yield return Shot("13_lobby_after_records");
+            yield return new WaitForSecondsRealtime(0.5f); yield return Shot("17_lobby_after_records");
             Line("기록: 최고 " + SaveData.BestFloor + "F, 점수 " + SaveData.BestScore + ", 무한 " + SaveData.BestEndless + "F");
+            var sb = new StringBuilder("튼 효과음: ");
+            foreach (var kv in gc.audioDirector.played) sb.Append(kv.Key).Append(' ').Append(kv.Value).Append(", ");
+            Line(sb.ToString().TrimEnd(',', ' ') + " (" + gc.audioDirector.played.Count + "종)");
             Finish();
         }
+
+        // 소리 확인: 출력 장치, 울리는 반복 소리, Unity가 실제로 내보내는 소리의 크기(RMS, 0이면 무음)
+        static string AudioReport(GameController gc, string where)
+        {
+            var cfg = AudioSettings.GetConfiguration();
+            float[] buf = new float[1024]; AudioListener.GetOutputData(buf, 0);
+            double sum = 0; foreach (var v in buf) sum += v * v;
+            var listener = FindFirstObjectByType<AudioListener>();
+            return "소리(" + where + "): 출력 " + AudioSettings.outputSampleRate + "Hz " + cfg.speakerMode + ", 리스너 " + (listener ? "있음" : "없음")
+                + ", 음소거 " + (gc.audioDirector && gc.audioDirector.muted) + ", 반복 " + (gc.audioDirector ? gc.audioDirector.Describe() : "-")
+                + ", 출력 RMS " + System.Math.Sqrt(sum / buf.Length).ToString("0.0000");
+        }
+
+        IEnumerator Steps(GameController gc, int n) => Until(() => gc.run == null || gc.run.Ended || gc.run.steps >= n, 90);
 
         static string Describe(RunResult r) => r == null ? "결과 없음" : (r.promoted ? "승급" : "구조조정") + " " + r.cause + " " + r.floor + "F 점수 " + r.score + " 콤보 " + r.maxCombo + " ×" + r.maxMult + " tip " + r.tip + (r.newBest ? " NEW" : "");
 
