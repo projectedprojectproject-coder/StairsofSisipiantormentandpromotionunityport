@@ -30,7 +30,8 @@ const RUNS = [
   ['normal', 'climb', 60 * 120], ['endless', 'climb', 60 * 120], ['normal', 'idle', 60 * 60], ['normal', 'wrong', 60 * 30], ['endless', 'slow', 60 * 60],
 ];
 // 경쟁 사원 × 계단 장애물 장면 (장애물 보기와 같은 판: seed 7, 그 칸에 서서 경쟁 사원 1명, 아무것도 누르지 않음)
-const SCENES = [[7, 356, 3.6, 60 * 5], [7, 212, 0, 60 * 4], [7, 326, 0, 60 * 4]];
+// climb > 0: 그 프레임마다 맞는 쪽으로 오른다 (61층에서 상사의 눈 레이저에 들키는지)
+const SCENES = [[7, 356, 3.6, 60 * 5, 0], [7, 212, 0, 60 * 4, 0], [7, 326, 0, 60 * 4, 0], [7, 366, 0, 60 * 30, 20]];
 const out = ['# 웹 판 사건 기록 — Tools~/web_expect.js가 만든다. 고치지 말고 다시 만든다', '# run <모드> <seed> <손놀림> <프레임 수> / 사건 줄들 / end <끝난 까닭|-> <층> <점수> <하트> <패링> <칸>'];
 for (const [mode, pol, ticks] of RUNS) {
   A.setBot(pol === 'bot'); A.logArr.length = 0; A.startRun(mode); const r = A.run;
@@ -39,10 +40,10 @@ for (const [mode, pol, ticks] of RUNS) {
   A.logArr.map(s => s.replace(/^\S+ /, '')).filter(s => KEEP.test(s)).forEach(s => out.push(s));
   out.push(['end', r.ended ? r.ended.cause : '-', r.floor, r.score, r.hearts, r.parries, r.steps].join(' '));
 }
-for (const [seed, at, ph, ticks] of SCENES) {
+for (const [seed, at, ph, ticks, climb] of SCENES) {
   A.setBot(false); A.logArr.length = 0; A.scene(seed, at, ph); const r = A.run;
-  for (let k = 1; k <= ticks && !r.ended; k++) { A.updatePlay(1 / 60); if (r.forceType && r.projs.length) { r.forceType = null; r.nextAttack = 1e9; } }
-  out.push(['run', 'scene', seed, at + ':' + ph, ticks].join(' '));
+  for (let k = 1; k <= ticks && !r.ended; k++) { if (climb && k % climb === 0) A.doStep(A.dirAt(r.steps)); A.updatePlay(1 / 60); if (r.forceType && r.projs.length) { r.forceType = null; r.nextAttack = 1e9; } }
+  out.push(['run', 'scene', seed, at + ':' + ph + ':' + climb, ticks].join(' '));
   A.logArr.map(s => s.replace(/^\S+ /, '')).filter(s => KEEP.test(s)).forEach(s => out.push(s));
   out.push(['end', r.ended ? r.ended.cause : '-', r.floor, r.score, r.hearts, r.parries, r.steps].join(' '));
 }

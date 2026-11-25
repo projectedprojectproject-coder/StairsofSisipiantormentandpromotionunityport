@@ -15,6 +15,7 @@ const CONFIG = {
   stepDays: 1,             // 계단 1칸 +1일
   parryDays: 1.5,          // 패링 성공 +1.5일
   parryWindow: 0.20,       // 패링 판정 0.20초
+  parryPerfect: 0.035,     // 결정(2026-11-25): 판정 창 한가운데에서 이만큼(초, 약 2프레임) 안에 막으면 '완벽' (새 막기 소리). 그 밖은 예전 막기 소리
   warnTime: 1.0,           // 공격 예고 1.0초 전 표시 (서류 비행 시간과 같음)
   promoteFloors: [20, 40, 60, 80], // 승급 심사 층. 20·40·60층은 승급 뒤 계속 오른다 (결정 2026-11-20: PoC 1~80층)
   practiceFloor: 11,       // 결정(2026-11-20): 연습 모드에서 서 있는 층 (층 바닥 위, 계단을 오르지 않는다)
@@ -41,7 +42,7 @@ const CONFIG = {
   airplaneFromFloor: 20,   // 결정: 20층부터 종이비행기 편대. 날아오는 쪽 막기 키를 꾹 누르고 있어야 한다
   weightAirplane: 0.5,     // 기획서 미정
   airplaneCount: 4,        // 기획서 미정: 한 편대의 비행기 수
-  airplaneGap: 0.2,        // 기획서 미정: 비행기 사이 간격(초). 누르고 있어야 하는 시간 = (수-1) x 간격
+  airplaneGap: 0.1,        // 결정(2026-11-25): 비행기 사이 간격(초). 바짝 붙은 편대. 누르고 있어야 하는 시간 = (수-1) x 간격
   escalatorFromFloor: 20,  // 결정: 20층부터 내려가는 에스컬레이터 칸. 가만히 서 있으면 한 칸씩 밀려 내려간다
   escalatorShare: 0.12,    // 기획서 미정: 에스컬레이터 칸 비율 (층이 바뀌는 칸, 금 간·젖은 칸은 빼고)
   escalatorPush: 0.6,      // 기획서 미정: 이만큼(초) 서 있으면 한 칸 밀린다
@@ -50,11 +51,11 @@ const CONFIG = {
   vanishShow: 5.0,         // 결정: 5초 동안 있다가
   vanishHide: 1.0,         // 결정: 1초 동안 없어진다 (모든 사라지는 칸이 같은 박자)
   vanishWarn: 1.0,         // 기획서 미정: 없어지기 전 깜박이는 시간(초)
-  gazeFromFloor: 61,       // 결정: 61층부터(보통·무한) 상사의 눈. 빨간 시선이 화면을 훑을 때 오르면 하트 -1
-  gazeWarn: 5.0,           // 결정: 훑기 전 5초 예고 (눈과 숫자)
-  gazeSweep: 1.5,          // 결정: 1.5초 동안 화면 끝에서 끝까지 훑는다
+  gazeFromFloor: 61,       // 결정: 61층부터(보통·무한) 상사의 눈. 멀리서 쏜 빨간 레이저가 화면을 위에서 아래로 훑을 때 오르면 하트 -1
+  gazeWarn: 5.0,           // 결정: 훑기 전 5초 예고 (화면이 붉어지고 위쪽 끝에 레이저가 차오름, 숫자). 눈은 보이지 않는다
+  gazeSweep: 0.6,          // 결정(2026-11-25): 0.6초 만에 화면 위 끝에서 아래 끝까지 쓸어내린다 (순식간에 훑는 감시 레이저)
   gazeRest: 6.0,           // 기획서 미정: 다음 예고까지 쉬는 시간(초)
-  gazeWidth: 80,           // 기획서 미정: 빨간 시선의 폭(px)
+  gazeWidth: 40,           // 기획서 미정: 레이저 띠의 두께(px). 띠가 플레이어 몸(28px)에 걸쳐 있는 동안 오르면 들킨다
   rivalCrackTime: 0.8,     // 기획서 미정: 경쟁 사원이 금 간 칸에 이만큼(초) 서 있으면 무너져 떨어진다 (플레이어보다 무겁다)
   rivalVanishWait: 0.5,    // 기획서 미정: 경쟁 사원은 사라지기까지 이만큼(초)도 안 남은 칸에는 올라서지 않고 기다린다
   suitcaseBurst: 0.1,      // 결정: 도착 몇 초 전에 터지는지. 판정 창(도착 전 0.2초)의 한가운데 = 터지는 순간
@@ -107,9 +108,9 @@ const CONFIG = {
   flickerTime: 0.6,        // 결정(2026-11-20): 모니터 예고. 형광등이 깜박이는 시간(초), 그 뒤 유리가 깨지며 1.0초 동안 떨어진다
   // 패링 타이밍 소리: [소리 ID, 도착 몇 초 전에 틀지]. 각 소리의 박(두 번째 딱·"헤이!"·두 번째 벨·종이 접는 소리)이
   // 판정 창(도착 전 0.2초)의 한가운데, 곧 도착 0.1초 전에 오도록 박 위치 + 0.1초 앞에서 튼다 (결정 2026-11-20)
-  cues: { clipboard: ['sfx_cue_clipboard', 0.40], rival: ['sfx_cue_rival', 0.145], stapler: ['sfx_cue_clipboard', 0.40], airplane: ['sfx_cue_paper', 0.35],
+  cues: { clipboard: ['sfx_cue_clipboard', 0.40], rival: ['sfx_cue_rival', 0.145], stapler: ['sfx_cue_stapler', 0.40], airplane: ['sfx_cue_airplane', 0.35],
           phone: ['sfx_phone_ring', 0.50], paper: ['sfx_cue_paper', 0.35],
-          coffee: ['sfx_cue_coffee', 0.135], sticky: ['sfx_cue_clipboard', 0.40],
+          coffee: ['sfx_cue_coffee', 0.135], sticky: ['sfx_cue_sticky', 0.40],
           suitcase: ['sfx_cue_suitcase', 0.46] },   // 서류가방: "똑, 똑, 펑!"의 펑(0.36초)이 터지는 순간   // 커피: 높은 "헤이!"(막지 말라는 신호)
   rivalSpeed: 240,         // 기획서 미정: 경쟁 사원이 층 바닥을 걷는 속도(px/초)
   rivalClimb: 10,          // 기획서 미정: 경쟁 사원이 계단을 따라 오르는 속도(칸/초). 플레이어보다 빠르다
@@ -127,7 +128,7 @@ const TIPS = {
     stapler: "스테이플러는 막으면 반대쪽에서 돌아와요. 반대쪽 키로 한 번 더 막으세요",
     airplane: "종이비행기 편대는 날아오는 쪽 키를 꾹 누르고 있으세요",
     vanish: "사라지는 칸은 5초 있다가 1초 없어져요. 깜박이면 기다렸다가 건너세요",
-    gaze: "빨간 시선(상사의 눈)이 지나갈 때는 오르지 마세요. 가만히 있으면 안전해요",
+    gaze: "빨간 레이저(상사의 눈)가 내 위를 지나갈 때는 오르지 마세요. 가만히 있으면 안전해요",
     rival: "경쟁 사원이 계단을 쫓아오면 내가 올라온 쪽(뒤쪽) 키로 막으세요",
     coffee: "커피(× 표시)는 막지 마세요. 그냥 두면 지나갑니다",
     monitor: "형광등이 깜박이면 모니터! 유리 깨지는 소리 1초 뒤에 떨어집니다",
@@ -145,7 +146,7 @@ const STICKY_COLORS = ['white', 'white', 'yellow', 'green', 'blue', 'pink'];   /
 const RANK_COLORS = [PAL.gray, PAL.green, PAL.red, PAL.text, PAL.text];
 const W = 320, H = 180;
 const STEP = 1 / 60;
-const ONCE = new Set(['step', 'parry_left', 'parry_right', 'hit', 'box_exit', 'proud', 'attack', 'leave']);
+const ONCE = new Set(['step', 'climb_r', 'climb_l', 'down', 'parry_hit_left', 'parry_hit_right', 'parry_left', 'parry_right', 'hit', 'box_exit', 'proud', 'attack', 'leave']);
 
 const params = new URLSearchParams(location.search);
 const BOT = params.get('bot') === '1';
@@ -209,7 +210,8 @@ const D = DEF || { sprites: {}, images: {}, sounds: {} };
 const ASSET_DIR = (D.assets_dir || 'assets').replace(/\/$/, '');
 const SPRITE_IDS = ['player', 'rival', 'projectiles', 'warning', 'stairs', 'hud_icons', 'props', 'commuter', 'sticky'];
 const IMAGE_IDS = ['bg_zone1', 'bg_zone2', 'bg_zone3', 'bg_zone4', 'bg_zone5', 'title_bg', 'logo', 'bg_lobby', 'bg_result', 'bg_practice'];
-const SOUND_IDS = ['bgm_loop', 'bgm_loop_tense', 'amb_office', 'sfx_step', 'sfx_parry', 'sfx_hit', 'sfx_warning', 'sfx_promote', 'sfx_gameover', 'sfx_click', 'sfx_phone_ring', 'sfx_cue_clipboard', 'sfx_cue_rival', 'sfx_cue_paper', 'sfx_monitor_shatter', 'sfx_light_flicker', 'sfx_cue_coffee', 'sfx_stair_crack', 'sfx_camera_flash', 'sfx_cue_suitcase', 'bgm_stage1', 'bgm_stage2', 'bgm_stage3', 'bgm_stage4', 'bgm_stage5', 'sfx_electric'];
+const SOUND_IDS = ['bgm_loop', 'bgm_loop_tense', 'amb_office', 'sfx_step', 'sfx_parry', 'sfx_parry_perfect', 'sfx_hit', 'sfx_warning', 'sfx_promote', 'sfx_gameover', 'sfx_click', 'sfx_phone_ring', 'sfx_cue_clipboard', 'sfx_cue_rival', 'sfx_cue_paper', 'sfx_monitor_shatter', 'sfx_light_flicker', 'sfx_cue_coffee', 'sfx_stair_crack', 'sfx_camera_flash', 'sfx_cue_suitcase', 'bgm_stage1', 'bgm_stage2', 'bgm_stage3', 'bgm_stage4', 'bgm_stage5', 'sfx_electric',
+                   'sfx_cue_stapler', 'sfx_cue_sticky', 'sfx_cue_airplane', 'sfx_gaze_warn', 'sfx_gaze_laser', 'sfx_vanish', 'sfx_escalator'];   // 새 장애물마다 다른 소리 (2026-11-25)
 const A = { sprites: {}, images: {} };
 let pending = 0;
 let assetsReady = false;
@@ -454,7 +456,7 @@ function makeRun(seed, mode) {
     nextAttack: CONFIG.firstAttackDelay, lastImpact: -9,
     projs: [], sparks: [], texts: [], leavers: [],
     parryStart: [-9, -9], parryEnd: [-9, -9], parryCd: [0, 0],
-    hitTimer: 0, stepTimer: 0, shake: 0, flash: 0,
+    hitTimer: 0, stepTimer: 0, lastStepT: -9, downT: -9, parryHitT: -9, parryHitSide: 0, shake: 0, flash: 0,   // lastStepT: 마지막으로 오른 때 (그리기용)
     pvx: 0, pvy: 0, camX: 0, camY: 0,
     facing: dirAt(0), animState: '', animStart: 0,
     botT: 0, ended: null, endTimer: 0, rivalIdx: 8,
@@ -538,19 +540,22 @@ function vanishState(r) {
   const show = CONFIG.vanishShow, P = show + CONFIG.vanishHide, ph = (r.time + r.vanishPhase) % P;
   return { gone: ph >= show, warn: ph >= show - CONFIG.vanishWarn && ph < show, goneIn: ph < show ? show - ph : 0, backIn: ph >= show ? P - ph : 0 };
 }
-// 상사의 눈: 61층에 처음 닿은 때부터 (예고 5초 → 훑기 1.5초 → 쉬기)를 되풀이. 훑는 방향은 번갈아
+// 상사의 눈: 61층에 처음 닿은 때부터 (예고 5초 → 훑기 1.5초 → 쉬기)를 되풀이. 멀리서 쏜 레이저 띠가 화면 위에서 아래로 내려온다 (y = 띠 가운데, 화면 좌표)
+const GAZE_BODY_Y = PLAYER_Y - 14, GAZE_BODY_H = 14;   // 플레이어 몸 가운데와 반 높이 (레이저가 몸에 걸쳤는지)
+const GAZE_SRC_Y = 50;                                 // 레이저가 시작되는 먼 불꽃의 높이 (화면 좌표). 번갈아 왼쪽·오른쪽
+function gazeSrcX(cycle) { return cycle % 2 ? 252 : 68; }
 function gazeState(r) {
   if (r.mode === 'practice' || r.gazeT0 === null) return null;
   const P = CONFIG.gazeWarn + CONFIG.gazeSweep + CONFIG.gazeRest, e = r.time - r.gazeT0;
-  const ph = e % P, cycle = Math.floor(e / P), dir = cycle % 2 ? -1 : 1;
-  if (ph < CONFIG.gazeWarn) return { warn: true, left: CONFIG.gazeWarn - ph, cycle: cycle, dir: dir };
+  const ph = e % P, cycle = Math.floor(e / P);
+  if (ph < CONFIG.gazeWarn) return { warn: true, left: CONFIG.gazeWarn - ph, cycle: cycle };
   if (ph < CONFIG.gazeWarn + CONFIG.gazeSweep) {
     const u = (ph - CONFIG.gazeWarn) / CONFIG.gazeSweep, half = CONFIG.gazeWidth / 2;
-    return { sweep: true, u: u, x: dir > 0 ? lerp(-half, W + half, u) : lerp(W + half, -half, u), cycle: cycle, dir: dir };
+    return { sweep: true, u: u, y: lerp(GAZE_SRC_Y, H + half, u), cycle: cycle };   // 불꽃 높이에서 화면 아래 끝까지
   }
-  return { rest: true, cycle: cycle, dir: dir };
+  return { rest: true, cycle: cycle };
 }
-function gazeOnPlayer(r) { const g = gazeState(r); return !!(g && g.sweep && Math.abs(g.x - playerScreenX()) < CONFIG.gazeWidth / 2); }
+function gazeOnPlayer(r) { const g = gazeState(r); return !!(g && g.sweep && Math.abs(g.y - GAZE_BODY_Y) < CONFIG.gazeWidth / 2 + GAZE_BODY_H); }
 function doStep(dir) {
   const r = run;
   if (!r || r.ended || screen !== 'play' || r.mode === 'practice') return;   // 연습: 계단을 오르지 않는다
@@ -572,7 +577,7 @@ function doStep(dir) {
   if (isCracked(r.steps)) { sfx('sfx_stair_crack'); log('crack step'); }   // 금 간 계단에 올라섰다
   r.days = Math.min(CONFIG.maxDays, r.days + CONFIG.stepDays);
   r.score += CONFIG.stepPoints * r.mult;
-  r.stepTimer = 0.14;
+  r.stepTimer = 0.14; r.lastStepT = r.time;
   r.facing = dirAt(r.steps);
   sfx('sfx_step');
   const nf = floorOfSteps(r.steps);
@@ -717,7 +722,7 @@ function rivalTileHazards(p, dt) {   // 경쟁 사원이 서 있는 칸의 장�
   if (isCracked(i)) { p.crackT = (p.crackT || 0) + dt; if (!kind && p.crackT >= CONFIG.rivalCrackTime) kind = 'cracked'; } else p.crackT = 0;
   if (isEscalator(i)) {                                    // 에스컬레이터: 서 있으면 경쟁 사원도 밀려 내려간다
     p.escT = (p.escT || 0) + dt;
-    if (p.escT >= CONFIG.escalatorPush && i > p.floorStep) { p.escT = 0; p.ri = i - 1; log('rival pushed'); }
+    if (p.escT >= CONFIG.escalatorPush && i > p.floorStep) { p.escT = 0; p.ri = i - 1; log('rival pushed'); sfx('sfx_escalator'); p.downT = r.time; }
   } else p.escT = 0;
   if (!kind) return false;
   p.done = true;
@@ -725,7 +730,7 @@ function rivalTileHazards(p, dt) {   // 경쟁 사원이 서 있는 칸의 장�
   r.fallers.push({ wx: rp.x, wy: rp.y, t0: r.time, kind: kind, side: p.side });
   r.score += CONFIG.parryPoints;                           // 덤 점수 (콤보는 그대로)
   log(kind === 'shock' ? 'rival shock' : 'rival fall ' + kind);
-  sfx(kind === 'shock' ? 'sfx_electric' : 'sfx_stair_crack');
+  sfx(kind === 'shock' ? 'sfx_electric' : kind === 'vanish' ? 'sfx_vanish' : 'sfx_stair_crack');
   addText(kind === 'shock' ? '경쟁 사원 감전!' : '경쟁 사원 추락!', 160 + (rp.x - r.camX), PLAYER_Y + (rp.y - r.camY) - 30, PAL.green);
   return true;
 }
@@ -738,13 +743,13 @@ function botTick(dt) {
   //   다음 칸이 끝나는 칸(전기가 흐르거나 곧 흐르는 젖은 칸)이면 기다린다
   //   지금 칸이 끝나는 칸(곧 전기가 흐르는 젖은 칸, 무너지기 직전의 금 간 칸)이면 오른다
   //   다음 사라지는 칸들(이어진 것까지)을 다 건널 시간이 없으면 기다린다
-  //   상사의 시선이 내 쪽에 있으면 기다린다 (지금 칸이 곧 사라지면 빼고)
+  //   상사의 레이저가 내 몸 위쪽 가까이 내려왔거나 몸에 걸쳐 있으면 기다린다 (지금 칸이 곧 사라지면 빼고)
   const gz = gazeState(r), vs = vanishState(r);
   let vrun = 0; while (vrun < 6 && isVanish(r.steps + 1 + vrun)) vrun++;
   const vanishBad = vrun > 0 && (vs.gone || vs.goneIn < 0.2 + vrun * CONFIG.botStepInterval);
   const hereFatal = (isWet(r.steps) && !sh.live && sh.shockIn < 0.45) || (isCracked(r.steps) && r.crackT > 1.0);
   const hereVanishSoon = isVanish(r.steps) && vs.goneIn < 0.45;
-  const gazeNear = !!(gz && gz.sweep && Math.abs(gz.x - playerScreenX()) < CONFIG.gazeWidth / 2 + 30);
+  const gazeNear = !!(gz && gz.sweep && gz.y < GAZE_BODY_Y + CONFIG.gazeWidth / 2 + GAZE_BODY_H + 4);   // 빨라서 훑는 동안은 몸을 지나갈 때까지 기다린다
   const wait = wetAhead || (!hereFatal && (vanishBad || (gazeNear && !hereVanishSoon)));
   if (r.botT >= CONFIG.botStepInterval) { if (wait) r.botT = CONFIG.botStepInterval; else { r.botT -= CONFIG.botStepInterval; keyStep(dirAt(r.steps)); } }
   if (r.ended) return;
@@ -800,10 +805,10 @@ function updatePlay(dt) {
   }
   if (isEscalator(r.steps)) {                  // 내려가는 에스컬레이터: 가만히 서 있으면 한 칸씩 밀려 내려간다
     r.escT += dt;
-    if (r.escT >= CONFIG.escalatorPush) { r.escT = 0; r.steps = Math.max(0, r.steps - 1); r.crackT = 0; r.facing = dirAt(r.steps); log('escalator push'); }
+    if (r.escT >= CONFIG.escalatorPush) { r.escT = 0; r.steps = Math.max(0, r.steps - 1); r.crackT = 0; r.facing = dirAt(r.steps); log('escalator push'); sfx('sfx_escalator'); r.downT = r.time; }
   } else r.escT = 0;
   if (isVanish(r.steps) && vanishState(r).gone) {   // 사라지는 칸: 없어지면 그 아래 칸으로 떨어진다
-    log('vanish fall'); sfx('sfx_stair_crack'); r.lastKind = 'vanish';
+    log('vanish fall'); sfx('sfx_vanish'); r.lastKind = 'vanish'; r.downT = r.time;
     while (r.steps > 0 && isVanish(r.steps)) r.steps--;
     r.crackT = 0; r.escT = 0; r.facing = dirAt(r.steps);
     addText('떨어짐!', playerScreenX(), PLAYER_Y - 30, PAL.red);
@@ -814,7 +819,7 @@ function updatePlay(dt) {
   const gz = gazeState(r);                     // 상사의 눈: 예고·훑기가 시작될 때 소리
   if (gz && !gz.rest) {
     const key = gz.cycle * 2 + (gz.sweep ? 1 : 0);
-    if (key !== r.gazeKey) { r.gazeKey = key; if (gz.warn) { sfx('sfx_warning'); log('gaze warn'); } else { sfx('sfx_light_flicker'); log('gaze sweep'); } }
+    if (key !== r.gazeKey) { r.gazeKey = key; if (gz.warn) { sfx('sfx_gaze_warn'); log('gaze warn'); } else { sfx('sfx_gaze_laser'); log('gaze sweep'); } }
   }
   if (r.floor >= CONFIG.flashFromFloor || r.mode !== 'normal') {      // 카메라 플래시 (무한·연습은 처음부터): 막을 수 없지만 피해도 없다
     r.nextFlash -= dt;
@@ -875,13 +880,15 @@ function updatePlay(dt) {
 }
 // 막기에 성공했을 때 (점수·콤보·일수·불꽃·글자). 종이비행기 편대는 다 막은 뒤 한 번
 function gainParry(r, p) {
+  r.parryHitT = r.time; r.parryHitSide = p.side;   // 막기 성공 프레임 (그리기용)
   r.parries++; r.combo++;
   r.mult = Math.min(CONFIG.maxMult, 1 + Math.floor(r.combo / CONFIG.comboPerMult));   // 3연속마다 ×1, 최대 ×10
   r.maxMult = Math.max(r.maxMult, r.mult);
   r.maxCombo = Math.max(r.maxCombo, r.combo);
   r.days = Math.min(CONFIG.maxDays, r.days + CONFIG.parryDays);
   r.score += CONFIG.parryPoints * r.mult;
-  sfx('sfx_parry');
+  const s = p.side < 0 ? 0 : 1, perfect = p.type === 'airplane' || Math.abs(p.impactT - r.parryStart[s] - CONFIG.parryWindow / 2) <= CONFIG.parryPerfect;
+  sfx(perfect ? 'sfx_parry_perfect' : 'sfx_parry');   // 완벽하게 막으면 더 짜릿한 소리
   const px = playerScreenX() + p.side * 10;
   for (let k = 0; k < 8; k++) {
     const a = r.decor() * Math.PI * 2;
@@ -1112,7 +1119,8 @@ function drawCommuters() {
   for (let i = 0; i < CONFIG.commuters; i++) {
     const dir = i % 3 === 1 ? -1 : 1, v = 9 + ((i * 7) % 5) * 1.6, span = W + 28;
     const x = (((20 + i * 64 + (i % 2) * 17 + dir * v * time) % span) + span) % span - 14;
-    drawSprite('commuter', 'default', 'walk', time * (v / 11) + i * 0.37, x, 179, { fw: 10, fh: 20, nofb: true, flip: dir < 0 });
+    const at = time * (v / 11) + i * 0.37;
+    drawSprite('commuter', 'default', 'walk', at, x, 179 - Math.abs(Math.sin(at * 7)) * 1.5, { fw: 10, fh: 20, nofb: true, flip: dir < 0 });   // 걸으며 들썩
   }
 }
 function drawTitle() {
@@ -1179,13 +1187,26 @@ function drawLobby() {
 /* ---------------------------------------------------------------------
  * 05-3 플레이
  * ------------------------------------------------------------------- */
+// 사람 그림 크기 (1 = 원래 크기)
+const MAN_SCALE = 1;
+// 계단을 달려 오르는 몸짓. a = 한 칸 오르기 진행(0 → 1, 0.14초), run = 계속 오르는 중인 정도(1 → 멈추면 0.4초에 걸쳐 0).
+// 한 칸마다 낮고 빠르게 들썩이고(발을 딛는 순간 살짝 눌림), 오르는 쪽으로 앞으로 기운다
+function runFx(a, run, dir, h) {
+  const s = a > 0 && a < 1 ? Math.sin(a * Math.PI) : 0;
+  const sy = 1 + 0.05 * s - (a > 0.75 && a < 1 ? 0.06 * Math.sin((a - 0.75) / 0.25 * Math.PI) : 0);
+  return { dy: -s * 2.5 + (1 - sy) * h / 2, sx: 1 + (1 - sy) * 0.8, sy: sy, rot: dir * (0.07 + 0.08 * run) * Math.max(run, s) };
+}
+// 위협 위 표시(!, ×, ↺, 꾹!, …)를 보일지: 10층까지만. 연습 모드와 장애물 보기에서는 늘 보인다 (결정 2026-11-25)
+function showMarks() { return !!demo || run.mode === 'practice' || run.floor <= 10; }
 function playerAnim(r) {
   let s = 'idle';
   if (r.ended) s = r.ended.kind === 'promote' ? 'proud' : 'hit';
   else if (r.hitTimer > 0) s = 'hit';
+  else if (r.time - r.parryHitT < 0.17) s = r.parryHitSide < 0 ? 'parry_hit_left' : 'parry_hit_right';   // 막기 성공: 손이 번쩍 → 몸이 밀림
   else if (r.time >= r.parryStart[0] && r.time < r.parryEnd[0]) s = 'parry_left';
   else if (r.time >= r.parryStart[1] && r.time < r.parryEnd[1]) s = 'parry_right';
-  else if (r.stepTimer > 0) s = 'step';
+  else if (r.time - r.downT < 0.3) s = 'down';                          // 밀려 내려가기·떨어지기: 웅크려 내려 딛기
+  else if (r.stepTimer > 0) s = r.steps % 2 ? 'climb_r' : 'climb_l';    // 칸마다 무릎을 번갈아 든다
   if (r.animState !== s) { r.animState = s; r.animStart = r.time; }
   return s;
 }
@@ -1206,16 +1227,28 @@ function drawPlayWorld() {
     for (let y = -24; y < H + 24; y += 24) rect(0, y + off, W, 1, PAL.gray, 0.25);
   }
   rect(0, 0, W, H, PAL.bg, 0.15);
-  // 상사의 눈 (배경): 예고 5초 동안 위층 어둠 속에 눈이 뜨고, 훑을 때는 빨간 시선이 화면을 가로지른다
+  // 상사의 눈 (배경): 눈은 보이지 않는다. 예고 5초 동안 화면이 붉어지고 먼 배경에 불꽃 하나가 천천히 나타났다 사라졌다 하며
+  // (상사의 눈인지 아닌지 모르게), 훑을 때는 그 불꽃에서 거대한 레이저가 부채꼴로 퍼져 화면 전체를 위에서 아래로 쓸어내린다
   const gz = gazeState(r);
-  if (gz && gz.warn) {
-    rect(0, 0, W, H, '#C0302E', 0.12 * (1 - gz.left / CONFIG.gazeWarn));   // 예고 동안 화면이 조금씩 붉어진다
-    drawGazeEye(160, 60, clamp((CONFIG.gazeWarn - gz.left) / 0.6, 0, 1), gz.left < 1.5 && Math.floor(time * 6) % 2 === 0);
-  }
-  if (gz && gz.sweep) {
-    rect(gz.x - CONFIG.gazeWidth / 2, 0, CONFIG.gazeWidth, H, '#C0302E', 0.32);
-    rect(gz.x - 6, 0, 12, H, '#FF5A4E', 0.25);
-    drawGazeEye(gz.x, 60, 1, false);
+  if (gz) drawDecoyGlints();                                            // 61층부터: 배경 곳곳의 가짜 불꽃 (진짜와 같은 모양·박자)
+  if (gz && (gz.warn || gz.sweep)) {
+    const sx0 = gazeSrcX(gz.cycle), sy0 = GAZE_SRC_Y;
+    if (gz.warn) {
+      const k = 1 - gz.left / CONFIG.gazeWarn, late = gz.left < 1.5;
+      rect(0, 0, W, H, '#C0302E', 0.12 * k);                            // 예고 동안 화면이 조금씩 붉어진다
+      const e = CONFIG.gazeWarn - gz.left, fade = 0.5 - 0.5 * Math.cos(e * 2 * Math.PI / 1.25);   // 불꽃 하나: 1.25초마다 천천히 나타났다 사라짐
+      drawGlint(sx0, sy0, 2 + (late ? 2 : 0) + fade * 1.5, fade * Math.min(1, e / 0.6));
+    } else {
+      const half = CONFIG.gazeWidth / 2, top = gz.y - half;
+      rect(0, 0, W, H, '#C0302E', 0.08);                                // 훑는 동안 화면 전체가 붉게 번쩍
+      for (let yy = sy0; yy < top; yy += 3) {                           // 불꽃에서 띠까지 부채꼴로 퍼지는 빛
+        const t = (yy - sy0) / Math.max(1, top - sy0), w = lerp(14, W * 2.4, t);
+        rect(sx0 - w / 2, yy, w, 3, '#C0302E', 0.2); rect(sx0 - w * 0.12, yy, w * 0.24, 3, '#FF5A4E', 0.3);
+      }
+      rect(0, top, W, CONFIG.gazeWidth, '#C0302E', 0.38);
+      rect(0, gz.y - 3, W, 6, '#FF5A4E', 0.6); rect(0, gz.y - 1, W, 2, '#FFD0C8', 0.45);
+      drawGlint(sx0, sy0, 10, 1);
+    }
   }
 
   if (!practice) {   // ---- 계단, 층 바닥, 소품, 난간 (연습 모드에는 없다)
@@ -1315,15 +1348,25 @@ function drawPlayWorld() {
     const sx = 160 + (stairX(r.rivalIdx) - r.camX);
     const sy = PLAYER_Y + (-r.rivalIdx * CONFIG.stepH - r.camY);
     ctx.globalAlpha = 0.75;
-    drawSprite('rival', 'default', 'walk', time, sx, sy + 1, { fw: 14, fh: 26, color: PAL.red, flip: dirAt(r.rivalIdx) < 0 });
+    drawSprite('rival', 'default', 'walk', time, sx, sy + 1 - Math.abs(Math.sin(time * 7)) * 1.5, { scale: MAN_SCALE, fw: 14 * MAN_SCALE, fh: 26 * MAN_SCALE, color: PAL.red, flip: dirAt(r.rivalIdx) < 0 });   // 걸으며 들썩
     ctx.globalAlpha = 1;
   }
   // 플레이어
   const px = playerScreenX();
   const anim = playerAnim(r);
   const rc = RANK_COLORS[r.rankIdx];
-  drawSprite('player', CONFIG.rankNames[r.rankIdx], anim, r.time - r.animStart, px, PLAYER_Y + 2,
-    { fw: 16, fh: 28, color: rc, flip: r.facing < 0 && anim !== 'parry_left' && anim !== 'parry_right' });
+  const po = { scale: MAN_SCALE, fw: 16 * MAN_SCALE, fh: 28 * MAN_SCALE, color: rc, flip: r.facing < 0 && anim !== 'parry_left' && anim !== 'parry_right' };
+  let pdy = 0;
+  if (anim === 'climb_r' || anim === 'climb_l' || anim === 'idle') {                                  // 계단을 달려 오르는 몸짓 (막기·맞기 동작은 그대로)
+    const since = r.time - r.lastStepT, run = clamp(1 - (since - 0.14) / 0.4, 0, 1), mdir = dirAt(Math.max(0, r.steps - 1));
+    const fx = runFx(r.stepTimer > 0 ? 1 - r.stepTimer / 0.14 : 0, run, mdir, 28 * MAN_SCALE);
+    po.sx = fx.sx; po.sy = fx.sy; po.rot = fx.rot; pdy = fx.dy;
+    if (r.stepTimer > 0) {                                                  // 발밑 먼지: 디딘 칸 뒤쪽으로 흩어진다
+      const k = 1 - r.stepTimer / 0.14;
+      for (let j = 0; j < 3; j++) rect(px - mdir * (5 + k * (6 + j * 4)), PLAYER_Y + 1 - k * (2 + j * 2), 2, 2, '#C9CCD1', 0.6 * (1 - k));
+    }
+  }
+  drawSprite('player', CONFIG.rankNames[r.rankIdx], anim, r.time - r.animStart, px, PLAYER_Y + 2 + pdy, po);
   // 투척물 + 예고
   // 월드 좌표 -> 화면 좌표 (경쟁 사원 발 위치)
   const sx = function (wx) { return 160 + (wx - r.camX); };
@@ -1331,11 +1374,11 @@ function drawPlayWorld() {
   r.leavers.forEach(function (l) {
     const k = (r.time - l.t0) / 0.5;
     ctx.globalAlpha = clamp(1 - k, 0, 1);
-    drawSprite('rival', 'default', 'leave', r.time - l.t0, sx(l.wx) + l.side * k * 90, sy(l.wy), { fw: 14, fh: 26, color: PAL.red, flip: l.side < 0 });
+    drawSprite('rival', 'default', 'leave', r.time - l.t0, sx(l.wx) + l.side * k * 90, sy(l.wy), { scale: MAN_SCALE, fw: 14 * MAN_SCALE, fh: 26 * MAN_SCALE, color: PAL.red, flip: l.side < 0 });
     ctx.globalAlpha = 1;
   });
   r.fallers.forEach(function (f) {   // 계단 장애물에 당한 경쟁 사원: 감전은 하얗게 떨다 사라지고, 떨어지면 돌며 아래로
-    const t = r.time - f.t0, k = t / 0.8, o = { fw: 14, fh: 26, color: PAL.red, flip: f.side < 0 };
+    const t = r.time - f.t0, k = t / 0.8, o = { scale: MAN_SCALE, fw: 14 * MAN_SCALE, fh: 26 * MAN_SCALE, color: PAL.red, flip: f.side < 0 };
     if (f.kind === 'shock') {
       ctx.globalAlpha = clamp(1 - k, 0, 1);
       drawSprite('rival', 'default', 'walk', 0, sx(f.wx) + Math.sin(t * 80) * 1.5, sy(f.wy), o);
@@ -1344,7 +1387,7 @@ function drawPlayWorld() {
     } else {
       ctx.globalAlpha = clamp(1 - k * 0.8, 0, 1);
       o.rot = f.side * t * 6;
-      drawSprite('rival', 'default', 'walk', 0, sx(f.wx) + f.side * 20 * t, sy(f.wy) + 160 * t * t, o);
+      drawSprite('rival', 'default', 'down', t, sx(f.wx) + f.side * 20 * t, sy(f.wy) + 160 * t * t, o);
       ctx.globalAlpha = 1;
     }
   });
@@ -1357,9 +1400,17 @@ function drawPlayWorld() {
         const k = 1 - left / CONFIG.rivalLeap;
         x = lerp(x, px + p.side * 12, k); y = lerp(y, PLAYER_Y + 1, k) - Math.sin(k * Math.PI) * 8; anim = 'attack';
       }
-      drawSprite('rival', 'default', anim, at, x, y, { fw: 14, fh: 26, color: PAL.red, flip: x > px });
-      if (p.waiting) txt('…', x, y - 30, { align: 'center', base: 'middle', size: 9, bold: true, color: '#E3B65C' });   // 계단 장애물 앞에서 기다리는 중
-      if (r.time >= p.spawnT) {
+      const ro = { scale: MAN_SCALE, fw: 14 * MAN_SCALE, fh: 26 * MAN_SCALE, color: PAL.red, flip: x > px };
+      if (p.downT !== undefined && r.time - p.downT < 0.3) { anim = 'down'; at = r.time - p.downT; }   // 밀려 내려가는 중
+      if (anim === 'walk' && p.phase === 'climb' && !p.waiting && p.ri < r.steps - 1 - 1e-6) {   // 계단을 달려 오를 때: 앞으로 기울고 다리를 빨리, 칸마다 낮게 들썩
+        const f = p.ri - Math.floor(p.ri);
+        y -= Math.sin(f * Math.PI) * 2; ro.rot = dirAt(Math.floor(p.ri)) * 0.15; at *= 2; anim = 'climb';
+      } else if (anim === 'walk' && p.phase === 'walk') {                       // 층 바닥을 달려올 때: 들썩이며 앞으로 기운다
+        y -= Math.abs(Math.sin(at * 16)) * 2; ro.rot = (x > px ? -1 : 1) * 0.1; at *= 1.6;
+      }
+      drawSprite('rival', 'default', anim, at, x, y, ro);
+      if (p.waiting && showMarks()) txt('…', x + 10, y - 36, { align: 'center', base: 'middle', size: 9, bold: true, color: '#E3B65C' });   // 계단 장애물 앞에서 기다리는 중
+      if (r.time >= p.spawnT && showMarks()) {
         const wk = drawSprite('warning', 'default', 'blink', r.time - p.spawnT, x, y - 35, { anchor: 'c', fw: 8, fh: 12, nofb: true });
         if (!wk && Math.floor(time * 8) % 2 === 0) { rect(x - 5, y - 42, 10, 14, PAL.red); txt('!', x, y - 35, { align: 'center', base: 'middle', size: 10, bold: true, shadow: false }); }
       }
@@ -1386,6 +1437,9 @@ function drawPlayWorld() {
       const x0 = p.from < 0 ? -16 : W + 16, mx = px + p.side * 36, my = PLAYER_Y - 36;
       if (prog < 0.65) { const u = prog / 0.65; x = lerp(x0, mx, u); y = lerp(ty, my, u) - Math.sin(u * Math.PI) * 14; }
       else { const v = (prog - 0.65) / 0.35; x = lerp(mx, tx, v); y = lerp(my, ty, v); }
+    } else if (p.type === 'stapler' && p.returned) {         // 막힌 스테이플러: 막은 자리에서 뒤로 튕겨 나갔다가 머리 위로 휘어 반대쪽에서 맞는다
+      const b = bezier3(prog, [px - p.side * 8, ty], [px - p.side * 96, ty - 40], [px + p.side * 84, ty - 76], [tx, ty]);
+      x = b[0]; y = b[1];
     } else {                                                 // 결재판: 옆에서 날아온다
       const x0 = p.side < 0 ? -16 : W + 16;
       x = lerp(x0, tx, prog); y = ty - Math.sin(prog * Math.PI) * 6;
@@ -1412,7 +1466,8 @@ function drawPlayWorld() {
     else if (p.type === 'sticky') drawSprite('sticky', STICKY_COLORS[p.hp], 'fly', at, x, y, so);   // 색 = 남은 횟수
     else drawSprite('projectiles', 'default', p.type === 'paper' ? 'document' : p.type, at, x, y, so);
     const wx = clamp(x, 8, W - 8), wy = y - 16;
-    if (p.type === 'coffee') { txt('×', wx, wy, { align: 'center', base: 'middle', size: 11, bold: true, color: PAL.red }); return; }   // 막지 말라는 표시
+    if (p.type === 'coffee') { if (showMarks()) txt('×', wx, wy, { align: 'center', base: 'middle', size: 11, bold: true, color: PAL.red }); return; }   // 막지 말라는 표시
+    if (!showMarks()) return;                                // 10층 위: 위협 위 표시 없음
     const wk = drawSprite('warning', 'default', 'blink', r.time - p.spawnT, wx, wy, { anchor: 'c', fw: 8, fh: 12, nofb: true });
     if (!wk && Math.floor(time * 8) % 2 === 0) {
       rect(wx - 5, wy - 7, 10, 14, PAL.red);
@@ -1434,9 +1489,8 @@ function drawPlayWorld() {
     rect(0, 0, W, H, '#08090B', f);
     rect(px + p.side * 52 - 30, 0, 60, 3, PAL.text, Math.max(0, 0.22 - f * 0.35));
   });
-  // 상사의 눈 (앞): 시선이 플레이어 위로도 보이게 옅게 한 번 더, 예고 숫자
-  if (gz && gz.sweep) { rect(gz.x - CONFIG.gazeWidth / 2, 0, CONFIG.gazeWidth, H, '#C0302E', 0.14); txt('멈추기!', 160, 40, { align: 'center', base: 'middle', size: 8, bold: true, color: '#FF5A4E' }); }
-  if (gz && gz.warn) txt('상사의 눈 ' + Math.ceil(gz.left), 160, 40, { align: 'center', base: 'middle', size: 8, bold: true, color: '#E06A5E' });
+  // 상사의 눈 (앞): 레이저가 플레이어 위로도 보이게 옅게 한 번 더, 예고 숫자
+  if (gz && gz.sweep) { rect(0, gz.y - CONFIG.gazeWidth / 2, W, CONFIG.gazeWidth, '#C0302E', 0.14); txt('멈추기!', 160, 40, { align: 'center', base: 'middle', size: 8, bold: true, color: '#FF5A4E' }); }
   if (r.flash > 0) rect(0, 0, W, H, PAL.red, clamp(r.flash / 0.35, 0, 1) * 0.35);
   // 카메라 플래시: 화면이 하얗게 번쩍이고, 터진 자리에 빛줄기가 남는다 (막을 수 없고 피해도 없다)
   if (r.camFlash) {
@@ -1447,12 +1501,21 @@ function drawPlayWorld() {
   }
 }
 // 새 장애물 그림 (스프라이트 없이 칸 단위로 그린다)
-function drawGazeEye(x, y, k, closed) {   // 상사의 눈 (2배 크기): 흰자, 빨간 눈동자, 짙은 눈썹. closed면 감은 눈(가는 줄)
-  if (k <= 0) return;
-  if (closed) { rect(x - 26, y, 52, 2, '#E8E6DF', 0.8 * k); return; }
-  rect(x - 18, y - 8, 36, 16, '#E8E6DF', 0.85 * k); rect(x - 26, y - 4, 52, 8, '#E8E6DF', 0.85 * k);
-  rect(x - 6, y - 6, 12, 12, '#A13D3D', k); rect(x - 2, y - 2, 4, 4, '#1E1F22', k);
-  rect(x - 20, y - 12, 40, 3, '#1E1F22', 0.9 * k);
+function decoyHash(a, b) { const v = Math.sin(a * 12.9898 + b * 78.233) * 43758.5453; return v - Math.floor(v); }
+function drawDecoyGlints() {   // 가짜 불꽃 5개: 저마다 다른 박자로 나타났다 사라지고, 사라질 때마다 자리를 옮긴다
+  for (let i = 0; i < 5; i++) {
+    const P = 1.9 + i * 0.43, e = time + i * 0.71, n = Math.floor(e / P), u = (e - n * P) / P, fade = Math.pow(Math.sin(u * Math.PI), 2);
+    drawGlint(Math.round(16 + decoyHash(i, n) * 288), Math.round(14 + decoyHash(i + 7, n) * 80), 2 + fade * 1.5, fade * 0.9);
+  }
+}
+function drawGlint(x, y, s, a) {   // 반짝임 (네 갈래 빛줄기와 가운데 점)
+  const S = Math.round(s);
+  rect(x - S, y, S * 2 + 1, 1, '#FFD0C8', a); rect(x, y - S, 1, S * 2 + 1, '#FFD0C8', a);
+  rect(x - 1, y - 1, 3, 3, '#FFFFFF', a); rect(x - 2, y - 2, 5, 5, '#FF5A4E', a * 0.35);
+}
+function bezier3(u, a, b, c, d) {   // 3차 베지어 곡선 위의 점
+  const v = 1 - u, w0 = v * v * v, w1 = 3 * v * v * u, w2 = 3 * v * u * u, w3 = u * u * u;
+  return [w0 * a[0] + w1 * b[0] + w2 * c[0] + w3 * d[0], w0 * a[1] + w1 * b[1] + w2 * c[1] + w3 * d[1]];
 }
 function drawStapler(x, y, rot) {   // 스테이플러: 짙은 몸통, 은색 덮개, 빨간 끝
   ctx.save(); ctx.translate(Math.round(x), Math.round(y)); ctx.rotate(rot);
@@ -1470,9 +1533,9 @@ function drawAirplanes(p, px) {   // 종이비행기 편대: 비행기마다 air
     const t0 = p.spawnT + k * CONFIG.airplaneGap;
     if (r.time < t0) continue;
     const u = clamp((r.time - t0) / dur, 0, 1);
-    drawPlane(lerp(x0, tx, u), ty - 8 + (k % 2) * 6 - Math.sin(u * Math.PI) * 10, p.side);
+    drawPlane(lerp(x0, tx, u), ty - 6 + (k % 2) * 3 - Math.sin(u * Math.PI) * 10, p.side);
   }
-  if (r.time >= p.spawnT) {
+  if (r.time >= p.spawnT && showMarks()) {
     const u = clamp((r.time - p.spawnT) / dur, 0, 1), wx = clamp(lerp(x0, tx, u), 8, W - 8), wy = ty - 26;
     const wk = drawSprite('warning', 'default', 'blink', r.time - p.spawnT, wx, wy, { anchor: 'c', fw: 8, fh: 12, nofb: true });
     if (!wk && Math.floor(time * 8) % 2 === 0) { rect(wx - 5, wy - 7, 10, 14, PAL.red); txt('!', wx, wy, { align: 'center', base: 'middle', size: 10, bold: true, shadow: false }); }
@@ -1603,7 +1666,7 @@ const DEMOS = [
   { id: 'paper', name: '서류', how: '던진 쪽 반대편에서 맞아요. "!"가 뜬 쪽(맞는 쪽) 키로', at: 156, threat: 'paper' },
   { id: 'sticky', name: '포스트잇', how: '막아도 튕겨 돌아와요. 색 = 남은 횟수 (분홍5 파랑4 초록3 노랑2 흰색1)', at: 156, threat: 'sticky', hp: 3 },
   { id: 'suitcase', name: '서류가방', how: '"똑, 똑, 펑!" 터지는 순간에 막기', at: 156, threat: 'suitcase' },
-  { id: 'stapler', name: '스테이플러', how: '막으면 부메랑처럼 반대쪽에서 돌아와요. 반대쪽 키로 한 번 더 (↺)', at: 156, threat: 'stapler' },
+  { id: 'stapler', name: '스테이플러', how: '막으면 뒤로 튕겼다가 머리 위로 휘어 반대쪽에서 돌아와요. 반대쪽 키로 한 번 더 (↺)', at: 156, threat: 'stapler' },
   { id: 'airplane', name: '종이비행기 편대', how: '날아오는 쪽 막기 키를 꾹 누르고 있기. 마지막 비행기까지 떼지 마세요', at: 156, threat: 'airplane' },
   { id: 'cracked', name: '금 간 계단', how: '서 있으면 흔들리다 1.5초면 무너져요. 멈추지 말고 다음 칸으로', at: 170, climb: [0.5, 1.5, 1.85, 2.2], dur: 3.2 },
   { id: 'escalator', name: '내려가는 에스컬레이터', how: '쇠빛 칸에 가만히 서 있으면 아래로 밀려요. 쉬지 말고 지나가기', at: 205, climb: [1.6, 1.95, 2.3, 2.65], dur: 3.4 },
@@ -1611,7 +1674,7 @@ const DEMOS = [
   { id: 'vanish', name: '사라지는 칸', how: '하늘색 선 칸은 5초 있다가 1초 없어져요. 깜박이면 기다렸다가 다시 생기면 건너기', at: 261, wait: 'vanish', vanishPhase: 3.8 },
   { id: 'rivalwait', name: '경쟁 사원과 사라지는 칸', how: '경쟁 사원도 사라지는 칸·전기가 흐르는 칸 앞에서는 멈춰 기다려요', at: 356, threat: 'rival', vanishPhase: 3.6 },
   { id: 'rivalcrack', name: '경쟁 사원과 금 간 칸', how: '경쟁 사원은 금 간 칸에 0.8초만 서 있어도 떨어지고, 젖은 칸에서 전기가 흐르면 감전돼요', at: 212, threat: 'rival' },
-  { id: 'gaze', name: '상사의 눈', how: '눈이 뜨고 5초 뒤 빨간 시선이 1.5초 동안 훑어요. 시선이 지나갈 때는 오르지 않기', at: 402, wait: 'gaze', gazeT0: -3.6 },
+  { id: 'gaze', name: '상사의 눈', how: '먼 곳에서 불꽃이 깜박이고 5초 뒤 거대한 레이저가 순식간에(0.6초) 화면을 쓸어내려요. 레이저가 내 위를 지날 때는 오르지 않기', at: 402, wait: 'gaze', gazeT0: -3.6 },
   { id: 'flash', name: '카메라 플래시', how: '막을 수 없지만 피해도 없어요. 눈이 부셔도 계속 오르세요', at: 372, flash: 0.8, climb: [1.5, 1.85, 2.2], dur: 3.2 },
 ];
 const DEMO_KEY_X = [114, 136, 166, 188];

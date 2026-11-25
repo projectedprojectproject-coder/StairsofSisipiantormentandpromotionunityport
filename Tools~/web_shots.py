@@ -40,7 +40,7 @@ with sync_playwright() as pw:
     key(page, "ArrowRight"); key(page, "Enter"); page.wait_for_timeout(300); shot(page, "02_settings")    # 톱니바퀴 → 설정
     key(page, "ArrowDown", 4); key(page, "Enter"); page.wait_for_timeout(300); shot(page, "03_help")        # 조작법 "보기"
     key(page, "Enter")                                                                                    # 장애물 보기 (focus 0)
-    for i, t in enumerate([1.3, 1.45, 1.9, 1.5, 1.55, 1.5, 1.5, 1.9, 1.5, 2.1, 1.85, 1.2, 1.3, 2.2, 1.6, 1.6, 2.1, 2.0, 0.85]):   # PlaytestDriver.DemoMoments
+    for i, t in enumerate([1.3, 1.45, 1.9, 1.5, 1.55, 1.5, 1.5, 1.9, 1.5, 2.1, 1.85, 1.2, 1.3, 2.2, 1.6, 1.6, 2.1, 1.65, 0.85]):   # PlaytestDriver.DemoMoments
         page.wait_for_timeout(int(t * 1000)); shot(page, f"03_demo_{i + 1:02d}"); key(page, "Enter")       # 다음
     key(page, "Escape")                                                                                   # 장애물 보기 닫기
     key(page, "Escape"); key(page, "Escape")

@@ -129,7 +129,7 @@ public class ParityTests
     public void WebRuns_MatchFrameForFrame()
     {
         var runs = LoadWebRuns();
-        Assert.GreaterOrEqual(runs.Count, 13);
+        Assert.GreaterOrEqual(runs.Count, 14);
         foreach (var w in runs)
         {
             var mode = w.mode == "endless" ? GameMode.Endless : w.mode == "practice" ? GameMode.Practice : GameMode.Normal;
@@ -145,7 +145,7 @@ public class ParityTests
             sim.Log += m => { if (Keep.IsMatch(m)) got.Add(m); };
             for (int k = 1; k <= w.ticks && !sim.Ended; k++)
             {
-                if (scene) { sim.Tick(RunSimulation.Step60); if (sim.forceType.HasValue && sim.threats.Count > 0) { sim.forceType = null; sim.nextAttack = 1e9; } continue; }
+                if (scene) { int cl = int.Parse(w.policy.Split(':')[2]); if (cl > 0 && k % cl == 0) sim.Step(sim.Stairs.DirAt(sim.steps)); sim.Tick(RunSimulation.Step60); if (sim.forceType.HasValue && sim.threats.Count > 0) { sim.forceType = null; sim.nextAttack = 1e9; } continue; }
                 int d = 0;
                 if (w.policy == "climb" && k % 18 == 0) d = sim.Stairs.DirAt(sim.steps);
                 else if (w.policy == "wrong" && k % 30 == 0) d = -sim.Stairs.DirAt(sim.steps);

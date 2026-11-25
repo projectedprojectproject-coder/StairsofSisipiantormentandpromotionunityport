@@ -70,7 +70,7 @@ namespace Stairs.Game
             { "stapler", "스테이플러는 막으면 반대쪽에서 돌아와요. 반대쪽 키로 한 번 더 막으세요" },
             { "airplane", "종이비행기 편대는 날아오는 쪽 키를 꾹 누르고 있으세요" },
             { "vanish", "사라지는 칸은 5초 있다가 1초 없어져요. 깜박이면 기다렸다가 건너세요" },
-            { "gaze", "빨간 시선(상사의 눈)이 지나갈 때는 오르지 마세요. 가만히 있으면 안전해요" },
+            { "gaze", "빨간 레이저(상사의 눈)가 내 위를 지나갈 때는 오르지 마세요. 가만히 있으면 안전해요" },
             { "rival", "경쟁 사원이 계단을 쫓아오면 내가 올라온 쪽(뒤쪽) 키로 막으세요" },
             { "coffee", "커피(× 표시)는 막지 마세요. 그냥 두면 지나갑니다" },
             { "monitor", "형광등이 깜박이면 모니터! 유리 깨지는 소리 1초 뒤에 떨어집니다" },
@@ -515,7 +515,8 @@ namespace Stairs.Game
             {
                 int dir = i % 3 == 1 ? -1 : 1; double v = 9 + ((i * 7) % 5) * 1.6, span = W + 28;
                 double x = (((20 + i * 64 + (i % 2) * 17 + dir * v * time) % span) + span) % span - 14;
-                DrawSprite("commuter", "default", "walk", time * (v / 11) + i * 0.37, x, 179, new SO { fw = 10, fh = 20, nofb = true, flip = dir < 0 });
+                double cat = time * (v / 11) + i * 0.37;
+                DrawSprite("commuter", "default", "walk", cat, x, 179 - Math.Abs(Math.Sin(cat * 7)) * 1.5, new SO { fw = 10, fh = 20, nofb = true, flip = dir < 0 });   // 걸으며 들썩
             }
         }
         void DrawTitle()
@@ -588,14 +589,18 @@ namespace Stairs.Game
         }
 
         // ================================================================ 05-3 플레이
+        // 위협 위 표시(!, ×, ↺, 꾹!, …)를 보일지: 10층까지만. 연습 모드와 장애물 보기에서는 늘 보인다 (웹 showMarks)
+        bool ShowMarks() => demo != null || run.Mode == GameMode.Practice || run.floor <= 10;
         string PlayerAnim()
         {
             var r = run; string s = "idle";
             if (r.Ended) s = r.ended.promoted ? "proud" : "hit";
             else if (r.hitTimer > 0) s = "hit";
+            else if (r.time - r.parryHitT < 0.17) s = r.parryHitSide < 0 ? "parry_hit_left" : "parry_hit_right";   // 막기 성공: 손이 번쩍 → 몸이 밀림
             else if (r.time >= r.parryStart[0] && r.time < r.parryEnd[0]) s = "parry_left";
             else if (r.time >= r.parryStart[1] && r.time < r.parryEnd[1]) s = "parry_right";
-            else if (r.stepTimer > 0) s = "step";
+            else if (r.time - r.downT < 0.3) s = "down";                       // 밀려 내려가기·떨어지기: 웅크려 내려 딛기
+            else if (r.stepTimer > 0) s = r.steps % 2 != 0 ? "climb_r" : "climb_l";   // 칸마다 무릎을 번갈아 든다
             if (animState != s) { animState = s; animStart = r.time; }
             return s;
         }
@@ -622,18 +627,33 @@ namespace Stairs.Game
                 for (double y = -24; y < H + 24; y += 24) Rect(0, y + off, W, 1, PalGray, 0.25);
             }
             Rect(0, 0, W, H, PalBg, 0.15);
-            // 상사의 눈 (배경): 예고 5초 동안 위층 어둠 속에 눈이 뜨고 화면이 붉어지며, 훑을 때는 빨간 시선이 화면을 가로지른다
+            // 상사의 눈 (배경): 눈은 보이지 않는다. 예고 5초 동안 화면이 붉어지고 먼 배경에 불꽃 하나가 천천히 나타났다 사라졌다 하며
+            // (상사의 눈인지 아닌지 모르게), 훑을 때는 그 불꽃에서 거대한 레이저가 부채꼴로 퍼져 화면 전체를 위에서 아래로 쓸어내린다
             var gz = r.Gaze(); double gw = D(C.gazeWidth);
-            if (gz.warn)
+            if (gz.active) DrawDecoyGlints();                                   // 61층부터: 배경 곳곳의 가짜 불꽃 (진짜와 같은 모양·박자)
+            if (gz.warn || gz.sweep)
             {
-                Rect(0, 0, W, H, "#C0302E", 0.12 * (1 - gz.left / D(C.gazeWarn)));
-                DrawGazeEye(160, 60, Clamp((D(C.gazeWarn) - gz.left) / 0.6, 0, 1), gz.left < 1.5 && Math.Floor(time * 6) % 2 == 0);
-            }
-            if (gz.sweep)
-            {
-                Rect(gz.x - gw / 2, 0, gw, H, "#C0302E", 0.32);
-                Rect(gz.x - 6, 0, 12, H, "#FF5A4E", 0.25);
-                DrawGazeEye(gz.x, 60, 1, false);
+                double sx0 = RunSimulation.GazeSrcX(gz.cycle), sy0 = RunSimulation.GazeSrcY;
+                if (gz.warn)
+                {
+                    double k = 1 - gz.left / D(C.gazeWarn); bool late = gz.left < 1.5;
+                    Rect(0, 0, W, H, "#C0302E", 0.12 * k);
+                    double e = D(C.gazeWarn) - gz.left, fade = 0.5 - 0.5 * Math.Cos(e * 2 * Math.PI / 1.25);   // 불꽃 하나: 1.25초마다 천천히 나타났다 사라짐
+                    DrawGlint(sx0, sy0, 2 + (late ? 2 : 0) + fade * 1.5, fade * Math.Min(1, e / 0.6));
+                }
+                else
+                {
+                    double half = gw / 2, top = gz.y - half;
+                    Rect(0, 0, W, H, "#C0302E", 0.08);
+                    for (double yy = sy0; yy < top; yy += 3)
+                    {   // 불꽃에서 띠까지 부채꼴로 퍼지는 빛
+                        double t = (yy - sy0) / Math.Max(1, top - sy0), w = Lerp(14, W * 2.4, t);
+                        Rect(sx0 - w / 2, yy, w, 3, "#C0302E", 0.2); Rect(sx0 - w * 0.12, yy, w * 0.24, 3, "#FF5A4E", 0.3);
+                    }
+                    Rect(0, top, W, gw, "#C0302E", 0.38);
+                    Rect(0, gz.y - 3, W, 6, "#FF5A4E", 0.6); Rect(0, gz.y - 1, W, 2, "#FFD0C8", 0.45);
+                    DrawGlint(sx0, sy0, 10, 1);
+                }
             }
 
             if (!practice)
@@ -754,15 +774,27 @@ namespace Stairs.Game
                 double sx = 160 + (r.Stairs.StairX(r.rivalIdx) - r.camX);
                 double sy = PLAYER_Y + (-r.rivalIdx * stepH - r.camY);
                 cv.globalAlpha = 0.75f;
-                DrawSprite("rival", "default", "walk", time, sx, sy + 1, new SO { fw = 14, fh = 26, color = PalRed, flip = r.Stairs.DirAt(r.rivalIdx) < 0 });
+                DrawSprite("rival", "default", "walk", time, sx, sy + 1 - Math.Abs(Math.Sin(time * 7)) * 1.5, new SO { scale = ManScale, fw = 14 * ManScale, fh = 26 * ManScale, color = PalRed, flip = r.Stairs.DirAt(r.rivalIdx) < 0 });   // 걸으며 들썩
                 cv.globalAlpha = 1;
             }
             // 플레이어
             double ppx = PlayerScreenX();
             string anim = PlayerAnim();
             var rc = RankColors[r.rankIdx];
-            DrawSprite("player", C.rankNames[r.rankIdx], anim, r.time - animStart, ppx, PLAYER_Y + 2,
-                new SO { fw = 16, fh = 28, color = rc, flip = r.facing < 0 && anim != "parry_left" && anim != "parry_right" });
+            var po = new SO { scale = ManScale, fw = 16 * ManScale, fh = 28 * ManScale, color = rc, flip = r.facing < 0 && anim != "parry_left" && anim != "parry_right" };
+            double pdy = 0;
+            if (anim == "climb_r" || anim == "climb_l" || anim == "idle")
+            {   // 계단을 달려 오르는 몸짓 (막기·맞기 동작은 그대로)
+                double since = r.time - r.lastStepT, run = Clamp(1 - (since - 0.14) / 0.4, 0, 1); int mdir = r.Stairs.DirAt(Math.Max(0, r.steps - 1));
+                var fx = RunFx(r.stepTimer > 0 ? 1 - r.stepTimer / 0.14 : 0, run, mdir, 28 * ManScale);
+                po.sx = fx[1]; po.sy = fx[2]; po.rot = fx[3]; pdy = fx[0];
+                if (r.stepTimer > 0)
+                {   // 발밑 먼지: 디딘 칸 뒤쪽으로 흩어진다
+                    double k = 1 - r.stepTimer / 0.14;
+                    for (int j = 0; j < 3; j++) Rect(ppx - mdir * (5 + k * (6 + j * 4)), PLAYER_Y + 1 - k * (2 + j * 2), 2, 2, "#C9CCD1", 0.6 * (1 - k));
+                }
+            }
+            DrawSprite("player", C.rankNames[r.rankIdx], anim, r.time - animStart, ppx, PLAYER_Y + 2 + pdy, po);
             // 투척물 + 예고. 월드 좌표 -> 화면 좌표 (경쟁 사원 발 위치)
             Func<double, double> SX = qx => 160 + (qx - r.camX);
             Func<double, double> SY = qy => PLAYER_Y + (qy - r.camY) + 1;
@@ -770,13 +802,13 @@ namespace Stairs.Game
             {
                 double k = (r.time - l.t0) / 0.5;
                 cv.globalAlpha = (float)Clamp(1 - k, 0, 1);
-                DrawSprite("rival", "default", "leave", r.time - l.t0, SX(l.wx) + l.side * k * 90, SY(l.wy), new SO { fw = 14, fh = 26, color = PalRed, flip = l.side < 0 });
+                DrawSprite("rival", "default", "leave", r.time - l.t0, SX(l.wx) + l.side * k * 90, SY(l.wy), new SO { scale = ManScale, fw = 14 * ManScale, fh = 26 * ManScale, color = PalRed, flip = l.side < 0 });
                 cv.globalAlpha = 1;
             }
             foreach (var f in r.fallers)   // 계단 장애물에 당한 경쟁 사원: 감전은 하얗게 떨다 사라지고, 떨어지면 돌며 아래로
             {
                 double t = r.time - f.t0, k = t / 0.8;
-                var o = new SO { fw = 14, fh = 26, color = PalRed, flip = f.side < 0 };
+                var o = new SO { scale = ManScale, fw = 14 * ManScale, fh = 26 * ManScale, color = PalRed, flip = f.side < 0 };
                 if (f.kind == "shock")
                 {
                     cv.globalAlpha = (float)Clamp(1 - k, 0, 1);
@@ -788,7 +820,7 @@ namespace Stairs.Game
                 {
                     cv.globalAlpha = (float)Clamp(1 - k * 0.8, 0, 1);
                     o.rot = f.side * t * 6;
-                    DrawSprite("rival", "default", "walk", 0, SX(f.wx) + f.side * 20 * t, SY(f.wy) + 160 * t * t, o);
+                    DrawSprite("rival", "default", "down", t, SX(f.wx) + f.side * 20 * t, SY(f.wy) + 160 * t * t, o);
                     cv.globalAlpha = 1;
                 }
             }
@@ -805,9 +837,20 @@ namespace Stairs.Game
                         double k = 1 - left / leap;
                         rx = Lerp(rx, ppx + p.side * 12, k); ry = Lerp(ry, PLAYER_Y + 1, k) - Math.Sin(k * Math.PI) * 8; ranim = "attack";
                     }
-                    DrawSprite("rival", "default", ranim, at0, rx, ry, new SO { fw = 14, fh = 26, color = PalRed, flip = rx > ppx });
-                    if (p.waiting) Txt("…", rx, ry - 30, T(9, "center", "middle", true, Hex("#E3B65C")));   // 계단 장애물 앞에서 기다리는 중
-                    if (r.time >= p.spawnT)
+                    var ro = new SO { scale = ManScale, fw = 14 * ManScale, fh = 26 * ManScale, color = PalRed, flip = rx > ppx };
+                    if (r.time - p.downT < 0.3) { ranim = "down"; at0 = r.time - p.downT; }   // 밀려 내려가는 중
+                    if (ranim == "walk" && p.phase == RivalPhase.Climb && !p.waiting && p.ri < r.steps - 1 - 1e-6)
+                    {   // 계단을 달려 오를 때: 앞으로 기울고 다리를 빨리, 칸마다 낮게 들썩
+                        double f = p.ri - Math.Floor(p.ri);
+                        ry -= Math.Sin(f * Math.PI) * 2; ro.rot = r.Stairs.DirAt((int)Math.Floor(p.ri)) * 0.15; at0 *= 2; ranim = "climb";
+                    }
+                    else if (ranim == "walk" && p.phase == RivalPhase.Walk)
+                    {   // 층 바닥을 달려올 때: 들썩이며 앞으로 기운다
+                        ry -= Math.Abs(Math.Sin(at0 * 16)) * 2; ro.rot = (rx > ppx ? -1 : 1) * 0.1; at0 *= 1.6;
+                    }
+                    DrawSprite("rival", "default", ranim, at0, rx, ry, ro);
+                    if (p.waiting && ShowMarks()) Txt("…", rx + 10, ry - 36, T(9, "center", "middle", true, Hex("#E3B65C")));   // 계단 장애물 앞에서 기다리는 중
+                    if (r.time >= p.spawnT && ShowMarks())
                     {
                         bool wk = DrawSprite("warning", "default", "blink", r.time - p.spawnT, rx, ry - 35, new SO { anchor = "c", fw = 8, fh = 12, nofb = true });
                         if (!wk && Math.Floor(time * 8) % 2 == 0) { Rect(rx - 5, ry - 42, 10, 14, PalRed); Txt("!", rx, ry - 35, T(10, "center", "middle", true, shadow: false)); }
@@ -845,6 +888,12 @@ namespace Stairs.Game
                     if (prog < 0.65) { double u = prog / 0.65; x = Lerp(x0, mx, u); y = Lerp(ty, my, u) - Math.Sin(u * Math.PI) * 14; }
                     else { double v = (prog - 0.65) / 0.35; x = Lerp(mx, tx, v); y = Lerp(my, ty, v); }
                 }
+                else if (p.type == ThreatType.Stapler && p.returned)
+                {   // 막힌 스테이플러: 막은 자리에서 뒤로 튕겨 나갔다가 머리 위로 휘어 반대쪽에서 맞는다 (3차 베지어)
+                    double u = prog, v = 1 - u, w0 = v * v * v, w1 = 3 * v * v * u, w2 = 3 * v * u * u, w3 = u * u * u;
+                    x = w0 * (ppx - p.side * 8) + w1 * (ppx - p.side * 96) + w2 * (ppx + p.side * 84) + w3 * tx;
+                    y = w0 * ty + w1 * (ty - 40) + w2 * (ty - 76) + w3 * ty;
+                }
                 else
                 {   // 결재판: 옆에서 날아온다
                     double x0 = p.side < 0 ? -16 : W + 16;
@@ -877,7 +926,8 @@ namespace Stairs.Game
                 else if (p.type == ThreatType.Sticky) DrawSprite("sticky", StickyColors[Mathf.Clamp(p.hp, 0, 5)], "fly", at, x, y, so);   // 색 = 남은 횟수
                 else DrawSprite("projectiles", "default", p.type == ThreatType.Paper ? "document" : p.type.ToString().ToLowerInvariant(), at, x, y, so);
                 double wx = Clamp(x, 8, W - 8), wy = y - 16;
-                if (p.type == ThreatType.Coffee) { Txt("×", wx, wy, T(11, "center", "middle", true, PalRed)); continue; }   // 막지 말라는 표시
+                if (p.type == ThreatType.Coffee) { if (ShowMarks()) Txt("×", wx, wy, T(11, "center", "middle", true, PalRed)); continue; }   // 막지 말라는 표시
+                if (!ShowMarks()) continue;                                // 10층 위: 위협 위 표시 없음
                 bool wk2 = DrawSprite("warning", "default", "blink", r.time - p.spawnT, wx, wy, new SO { anchor = "c", fw = 8, fh = 12, nofb = true });
                 if (!wk2 && Math.Floor(time * 8) % 2 == 0)
                 {
@@ -904,8 +954,7 @@ namespace Stairs.Game
                 Rect(ppx + p.side * 52 - 30, 0, 60, 3, PalText, Math.Max(0, 0.22 - f * 0.35));
             }
             // 상사의 눈 (앞): 시선이 플레이어 위로도 보이게 옅게 한 번 더, 예고 숫자
-            if (gz.sweep) { Rect(gz.x - gw / 2, 0, gw, H, "#C0302E", 0.14); Txt("멈추기!", 160, 40, T(8, "center", "middle", true, Hex("#FF5A4E"))); }
-            if (gz.warn) Txt("상사의 눈 " + (int)Math.Ceiling(gz.left), 160, 40, T(8, "center", "middle", true, Hex("#E06A5E")));
+            if (gz.sweep) { Rect(0, gz.y - gw / 2, W, gw, "#C0302E", 0.14); Txt("멈추기!", 160, 40, T(8, "center", "middle", true, Hex("#FF5A4E"))); }
             if (r.hurtFlash > 0) Rect(0, 0, W, H, PalRed, Clamp(r.hurtFlash / 0.35, 0, 1) * 0.35);
             // 카메라 플래시: 화면이 하얗게 번쩍이고, 터진 자리에 빛줄기가 남는다 (막을 수 없고 피해도 없다)
             if (r.flashing)
@@ -918,13 +967,29 @@ namespace Stairs.Game
         }
 
         // 새 장애물 그림 (스프라이트 없이 칸 단위로, 웹 drawGazeEye/drawStapler/drawPlane/drawAirplanes)
-        void DrawGazeEye(double x, double y, double k, bool closed)
+        // 웹 MAN_SCALE: 사람 그림 1.5배 (원본 한 픽셀이 화면에서 고르게 3픽셀)
+        const double ManScale = 1;   // 사람 그림 크기 (1 = 원래 크기)
+        // 웹 runFx: 계단을 달려 오르는 몸짓. [dy, sx, sy, rot]
+        static double[] RunFx(double a, double run, int dir, double h)
         {
-            if (k <= 0) return;
-            if (closed) { Rect(x - 26, y, 52, 2, "#E8E6DF", 0.8 * k); return; }
-            Rect(x - 18, y - 8, 36, 16, "#E8E6DF", 0.85 * k); Rect(x - 26, y - 4, 52, 8, "#E8E6DF", 0.85 * k);
-            Rect(x - 6, y - 6, 12, 12, "#A13D3D", k); Rect(x - 2, y - 2, 4, 4, "#1E1F22", k);
-            Rect(x - 20, y - 12, 40, 3, "#1E1F22", 0.9 * k);
+            double s = a > 0 && a < 1 ? Math.Sin(a * Math.PI) : 0;
+            double sy = 1 + 0.05 * s - (a > 0.75 && a < 1 ? 0.06 * Math.Sin((a - 0.75) / 0.25 * Math.PI) : 0);
+            return new[] { -s * 2.5 + (1 - sy) * h / 2, 1 + (1 - sy) * 0.8, sy, dir * (0.07 + 0.08 * run) * Math.Max(run, s) };
+        }
+        static double DecoyHash(double a, double b) { double v = Math.Sin(a * 12.9898 + b * 78.233) * 43758.5453; return v - Math.Floor(v); }
+        void DrawDecoyGlints()
+        {   // 가짜 불꽃 5개: 저마다 다른 박자로 나타났다 사라지고, 사라질 때마다 자리를 옮긴다 (웹 drawDecoyGlints)
+            for (int i = 0; i < 5; i++)
+            {
+                double P = 1.9 + i * 0.43, e = time + i * 0.71, n = Math.Floor(e / P), u = (e - n * P) / P, fade = Math.Pow(Math.Sin(u * Math.PI), 2);
+                DrawGlint(JsRound(16 + DecoyHash(i, n) * 288), JsRound(14 + DecoyHash(i + 7, n) * 80), 2 + fade * 1.5, fade * 0.9);
+            }
+        }
+        void DrawGlint(double x, double y, double sz, double a)
+        {   // 반짝임 (네 갈래 빛줄기와 가운데 점)
+            double S = JsRound(sz);
+            Rect(x - S, y, S * 2 + 1, 1, "#FFD0C8", a); Rect(x, y - S, 1, S * 2 + 1, "#FFD0C8", a);
+            Rect(x - 1, y - 1, 3, 3, "#FFFFFF", a); Rect(x - 2, y - 2, 5, 5, "#FF5A4E", a * 0.35);
         }
         void DrawStapler(double x, double y, double rot)
         {
@@ -946,9 +1011,9 @@ namespace Stairs.Game
                 double t0 = p.spawnT + k * gap;
                 if (r.time < t0) continue;
                 double u = Clamp((r.time - t0) / dur, 0, 1);
-                DrawPlane(Lerp(x0, tx, u), ty - 8 + (k % 2) * 6 - Math.Sin(u * Math.PI) * 10, p.side);
+                DrawPlane(Lerp(x0, tx, u), ty - 6 + (k % 2) * 3 - Math.Sin(u * Math.PI) * 10, p.side);
             }
-            if (r.time >= p.spawnT)
+            if (r.time >= p.spawnT && ShowMarks())
             {
                 double u = Clamp((r.time - p.spawnT) / dur, 0, 1), wx = Clamp(Lerp(x0, tx, u), 8, W - 8), wy = ty - 26;
                 bool wk = DrawSprite("warning", "default", "blink", r.time - p.spawnT, wx, wy, new SO { anchor = "c", fw = 8, fh = 12, nofb = true });
@@ -1092,7 +1157,7 @@ namespace Stairs.Game
             new DemoScene { id = "paper", name = "서류", how = "던진 쪽 반대편에서 맞아요. \"!\"가 뜬 쪽(맞는 쪽) 키로", at = 156, threat = ThreatType.Paper },
             new DemoScene { id = "sticky", name = "포스트잇", how = "막아도 튕겨 돌아와요. 색 = 남은 횟수 (분홍5 파랑4 초록3 노랑2 흰색1)", at = 156, threat = ThreatType.Sticky, hp = 3 },
             new DemoScene { id = "suitcase", name = "서류가방", how = "\"똑, 똑, 펑!\" 터지는 순간에 막기", at = 156, threat = ThreatType.Suitcase },
-            new DemoScene { id = "stapler", name = "스테이플러", how = "막으면 부메랑처럼 반대쪽에서 돌아와요. 반대쪽 키로 한 번 더 (↺)", at = 156, threat = ThreatType.Stapler },
+            new DemoScene { id = "stapler", name = "스테이플러", how = "막으면 뒤로 튕겼다가 머리 위로 휘어 반대쪽에서 돌아와요. 반대쪽 키로 한 번 더 (↺)", at = 156, threat = ThreatType.Stapler },
             new DemoScene { id = "airplane", name = "종이비행기 편대", how = "날아오는 쪽 막기 키를 꾹 누르고 있기. 마지막 비행기까지 떼지 마세요", at = 156, threat = ThreatType.Airplane },
             new DemoScene { id = "cracked", name = "금 간 계단", how = "서 있으면 흔들리다 1.5초면 무너져요. 멈추지 말고 다음 칸으로", at = 170, climb = new[] { 0.5, 1.5, 1.85, 2.2 }, dur = 3.2 },
             new DemoScene { id = "escalator", name = "내려가는 에스컬레이터", how = "쇠빛 칸에 가만히 서 있으면 아래로 밀려요. 쉬지 말고 지나가기", at = 205, climb = new[] { 1.6, 1.95, 2.3, 2.65 }, dur = 3.4 },
@@ -1100,7 +1165,7 @@ namespace Stairs.Game
             new DemoScene { id = "vanish", name = "사라지는 칸", how = "하늘색 선 칸은 5초 있다가 1초 없어져요. 깜박이면 기다렸다가 다시 생기면 건너기", at = 261, wait = "vanish", vanishPhase = 3.8 },
             new DemoScene { id = "rivalwait", name = "경쟁 사원과 사라지는 칸", how = "경쟁 사원도 사라지는 칸·전기가 흐르는 칸 앞에서는 멈춰 기다려요", at = 356, threat = ThreatType.Rival, vanishPhase = 3.6 },
             new DemoScene { id = "rivalcrack", name = "경쟁 사원과 금 간 칸", how = "경쟁 사원은 금 간 칸에 0.8초만 서 있어도 떨어지고, 젖은 칸에서 전기가 흐르면 감전돼요", at = 212, threat = ThreatType.Rival },
-            new DemoScene { id = "gaze", name = "상사의 눈", how = "눈이 뜨고 5초 뒤 빨간 시선이 1.5초 동안 훑어요. 시선이 지나갈 때는 오르지 않기", at = 402, wait = "gaze", gazeT0 = -3.6 },
+            new DemoScene { id = "gaze", name = "상사의 눈", how = "먼 곳에서 불꽃이 깜박이고 5초 뒤 거대한 레이저가 순식간에(0.6초) 화면을 쓸어내려요. 레이저가 내 위를 지날 때는 오르지 않기", at = 402, wait = "gaze", gazeT0 = -3.6 },
             new DemoScene { id = "flash", name = "카메라 플래시", how = "막을 수 없지만 피해도 없어요. 눈이 부셔도 계속 오르세요", at = 372, flash = 0.8, climb = new[] { 1.5, 1.85, 2.2 }, dur = 3.2 },
         };
         static readonly float[] DemoKeyX = { 114, 136, 166, 188 };

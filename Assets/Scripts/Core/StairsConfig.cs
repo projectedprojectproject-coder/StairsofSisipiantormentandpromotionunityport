@@ -14,6 +14,7 @@ namespace Stairs.Core
         public float dayDuration = 0.33f;     // 1일 = 약 0.33초
         public float stepDays = 1f, parryDays = 1.5f;
         public float parryWindow = 0.20f;     // 패링 판정 창(초)
+        public float parryPerfect = 0.035f;   // 창 한가운데에서 이만큼(초) 안이면 '완벽' (새 막기 소리)
         public float warnTime = 1.0f;         // 공격 예고(초) = 비행 시간
         public int[] promoteFloors = { 20, 40, 60, 80 };
         public int finalFloor = 100;
@@ -39,10 +40,10 @@ namespace Stairs.Core
         public int stickyMax = 5;
         // ---- 새 장애물 (2026-11-25, 웹 CONFIG와 같은 값) ----
         public int staplerFromFloor = 15; public float weightStapler = 0.6f, staplerReturn = 0.9f;            // 막으면 반대쪽에서 돌아온다
-        public int airplaneFromFloor = 20; public float weightAirplane = 0.5f; public int airplaneCount = 4; public float airplaneGap = 0.2f;   // 꾹 누르기
+        public int airplaneFromFloor = 20; public float weightAirplane = 0.5f; public int airplaneCount = 4; public float airplaneGap = 0.1f;   // 꾹 누르기
         public int escalatorFromFloor = 20; public float escalatorShare = 0.12f, escalatorPush = 0.6f;       // 서 있으면 밀려 내려간다
         public int vanishFromFloor = 41; public float vanishShare = 0.10f, vanishShow = 5f, vanishHide = 1f, vanishWarn = 1f;   // 5초 있고 1초 없어짐
-        public int gazeFromFloor = 61; public float gazeWarn = 5f, gazeSweep = 1.5f, gazeRest = 6f, gazeWidth = 80f;            // 상사의 눈
+        public int gazeFromFloor = 61; public float gazeWarn = 5f, gazeSweep = 0.6f, gazeRest = 6f, gazeWidth = 40f;            // 상사의 눈
         public float rivalWalk = 0.6f, flickerTime = 0.6f;
         // 경쟁 사원 쫓아오기 (2026-11-25 Unity 2단계): 층 바닥을 걸어오고, 플레이어가 더 높으면 계단을 따라 오른다
         public float rivalLeap = 0.3f;        // 치기 직전 플레이어 칸으로 뛰어오르는 시간(초). 이때 막을 쪽이 정해진다

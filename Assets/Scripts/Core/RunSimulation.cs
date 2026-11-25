@@ -13,8 +13,8 @@ namespace Stairs.Core
 
     /// <summary>사라지는 칸의 박자 (웹 vanishState).</summary>
     public struct VanishState { public bool gone, warn; public double goneIn, backIn; }
-    /// <summary>상사의 눈 (웹 gazeState). active가 false면 아직 61층 전(또는 연습).</summary>
-    public struct GazeState { public bool active, warn, sweep, rest; public double left, u, x; public int cycle, dir; }
+    /// <summary>상사의 눈 (웹 gazeState). active가 false면 아직 61층 전(또는 연습). y = 위에서 아래로 내려오는 레이저 띠의 가운데(화면 좌표).</summary>
+    public struct GazeState { public bool active, warn, sweep, rest; public double left, u, y; public int cycle; }
     public enum RivalPhase { Walk, Stand, Climb }
 
     public sealed class Threat
@@ -37,6 +37,7 @@ namespace Stairs.Core
         public double ri;         // 오르기: 계단 칸 번호(소수)
         public int floorStep;     // 걸어 들어오는 층 바닥의 칸 번호 (가장 가까운 층 바닥, 위 또는 아래)
         public bool waiting;      // 다음 칸의 계단 장애물 앞에서 기다리는 중 (머리 위 "…")
+        public double downT = -9; // 에스컬레이터에 밀려 내려간 때 (그리기용)
         public double crackT, escT;   // 지금 칸(금 간 칸·에스컬레이터)에 서 있은 시간
 
         public bool IsRival => type == ThreatType.Rival;
@@ -99,6 +100,8 @@ namespace Stairs.Core
         public double FlashK => flashing ? Math.Max(0, flashLeft / D(C.flashTime)) : 0;
         // 웹의 pvx/pvy(플레이어가 보이는 자리, 칸으로 미끄러진다)와 camX/camY. 경쟁 사원이 들어오는 자리가 camX에 기대므로 Core에서 움직인다
         public double pvx, pvy, camX, camY;
+        public double parryHitT = -9; public int parryHitSide;   // 막기에 성공한 때와 쪽 (그리기용, 웹 run.parryHitT)
+        public double lastStepT = -9, downT = -9;  // 마지막으로 오른 때, 밀려 내려가거나 떨어진 때 (그리기용, 웹 run.lastStepT·downT)
         public double hitTimer, stepTimer, shake, hurtFlash;   // 연출용 타이머 (웹과 같은 값)
         public int facing;
         public int rivalIdx = 8;                  // 경쟁 사원 장식이 서 있는 칸
@@ -164,19 +167,24 @@ namespace Stairs.Core
         {
             if (Mode == GameMode.Practice || gazeT0 == null) return default;
             double warn = D(C.gazeWarn), sweep = D(C.gazeSweep), P = warn + sweep + D(C.gazeRest), e = time - gazeT0.Value;
-            double ph = e % P; int cycle = (int)Math.Floor(e / P), dir = cycle % 2 != 0 ? -1 : 1;
-            var g = new GazeState { active = true, cycle = cycle, dir = dir };
+            double ph = e % P; int cycle = (int)Math.Floor(e / P);
+            var g = new GazeState { active = true, cycle = cycle };
             if (ph < warn) { g.warn = true; g.left = warn - ph; return g; }
             if (ph < warn + sweep)
             {
-                double u = (ph - warn) / sweep, half = D(C.gazeWidth) / 2, W = D(C.viewW);
-                g.sweep = true; g.u = u; g.x = dir > 0 ? Lerp(-half, W + half, u) : Lerp(W + half, -half, u);
+                double u = (ph - warn) / sweep, half = D(C.gazeWidth) / 2, H = D(C.viewH);
+                g.sweep = true; g.u = u; g.y = Lerp(GazeSrcY, H + half, u);   // 불꽃 높이에서 화면 아래 끝까지
                 return g;
             }
             g.rest = true; return g;
         }
 
-        bool GazeOnPlayer() { var g = Gaze(); return g.sweep && Math.Abs(g.x - PlayerScreenX) < D(C.gazeWidth) / 2; }
+        /// <summary>웹 GAZE_BODY_Y/H: 플레이어 몸 가운데와 반 높이 (레이저가 몸에 걸쳤는지).</summary>
+        public const double GazeBodyY = PlayerY - 14, GazeBodyH = 14;
+        /// <summary>웹 GAZE_SRC_Y/gazeSrcX: 레이저가 시작되는 먼 불꽃 (화면 좌표). 번갈아 왼쪽·오른쪽.</summary>
+        public const double GazeSrcY = 50;
+        public static double GazeSrcX(int cycle) => cycle % 2 != 0 ? 252 : 68;
+        bool GazeOnPlayer() { var g = Gaze(); return g.sweep && Math.Abs(g.y - GazeBodyY) < D(C.gazeWidth) / 2 + GazeBodyH; }
 
         double DiffT()
         {
@@ -207,7 +215,7 @@ namespace Stairs.Core
             if (Stairs.IsCracked(steps)) { Sfx?.Invoke("sfx_stair_crack"); Log?.Invoke("crack step"); }
             days = Math.Min(D(C.maxDays), days + D(C.stepDays));
             score += C.stepPoints * mult;
-            stepTimer = 0.14;
+            stepTimer = 0.14; lastStepT = time;
             facing = Stairs.DirAt(steps);
             Sfx?.Invoke("sfx_step");
             int nf = Stairs.FloorOfSteps(steps);
@@ -399,7 +407,7 @@ namespace Stairs.Core
             if (Stairs.IsEscalator(i))                                 // 에스컬레이터: 서 있으면 경쟁 사원도 밀려 내려간다
             {
                 p.escT += dt;
-                if (p.escT >= D(C.escalatorPush) && i > p.floorStep) { p.escT = 0; p.ri = i - 1; Log?.Invoke("rival pushed"); }
+                if (p.escT >= D(C.escalatorPush) && i > p.floorStep) { p.escT = 0; p.ri = i - 1; Log?.Invoke("rival pushed"); Sfx?.Invoke("sfx_escalator"); p.downT = time; }
             }
             else p.escT = 0;
             if (kind == null) return false;
@@ -408,7 +416,7 @@ namespace Stairs.Core
             fallers.Add(new Faller { wx = rp.x, wy = rp.y, t0 = time, kind = kind, side = p.side });
             score += C.parryPoints;                                    // 덤 점수 (콤보는 그대로)
             Log?.Invoke(kind == "shock" ? "rival shock" : "rival fall " + kind);
-            Sfx?.Invoke(kind == "shock" ? "sfx_electric" : "sfx_stair_crack");
+            Sfx?.Invoke(kind == "shock" ? "sfx_electric" : kind == "vanish" ? "sfx_vanish" : "sfx_stair_crack");
             AddText(kind == "shock" ? "경쟁 사원 감전!" : "경쟁 사원 추락!", 160 + (rp.x - camX), PlayerY + (rp.y - camY) - 30, "green");
             return true;
         }
@@ -417,9 +425,9 @@ namespace Stairs.Core
         {
             { ThreatType.Clipboard, ("sfx_cue_clipboard", 0.40) }, { ThreatType.Rival, ("sfx_cue_rival", 0.145) },
             { ThreatType.Phone, ("sfx_phone_ring", 0.50) }, { ThreatType.Paper, ("sfx_cue_paper", 0.35) },
-            { ThreatType.Coffee, ("sfx_cue_coffee", 0.135) }, { ThreatType.Sticky, ("sfx_cue_clipboard", 0.40) },
+            { ThreatType.Coffee, ("sfx_cue_coffee", 0.135) }, { ThreatType.Sticky, ("sfx_cue_sticky", 0.40) },
             { ThreatType.Suitcase, ("sfx_cue_suitcase", 0.46) },
-            { ThreatType.Stapler, ("sfx_cue_clipboard", 0.40) }, { ThreatType.Airplane, ("sfx_cue_paper", 0.35) },
+            { ThreatType.Stapler, ("sfx_cue_stapler", 0.40) }, { ThreatType.Airplane, ("sfx_cue_airplane", 0.35) },
         };
 
         /// <summary>한 프레임 진행 (웹의 updatePlay). 웹과 같게 하려면 dt = Step60. 끝난 뒤 endDelay가 지나면 true를 돌려준다.</summary>
@@ -463,12 +471,12 @@ namespace Stairs.Core
             if (Stairs.IsEscalator(steps))   // 내려가는 에스컬레이터: 가만히 서 있으면 한 칸씩 밀려 내려간다
             {
                 escT += dt;
-                if (escT >= D(C.escalatorPush)) { escT = 0; steps = Math.Max(0, steps - 1); crackT = 0; facing = Stairs.DirAt(steps); Log?.Invoke("escalator push"); }
+                if (escT >= D(C.escalatorPush)) { escT = 0; steps = Math.Max(0, steps - 1); crackT = 0; facing = Stairs.DirAt(steps); Log?.Invoke("escalator push"); Sfx?.Invoke("sfx_escalator"); downT = time; }
             }
             else escT = 0;
             if (Stairs.IsVanish(steps) && Vanish().gone)   // 사라지는 칸: 없어지면 그 아래 칸으로 떨어진다
             {
-                Log?.Invoke("vanish fall"); Sfx?.Invoke("sfx_stair_crack"); lastKind = "vanish";
+                Log?.Invoke("vanish fall"); Sfx?.Invoke("sfx_vanish"); lastKind = "vanish"; downT = time;
                 while (steps > 0 && Stairs.IsVanish(steps)) steps--;
                 crackT = 0; escT = 0; facing = Stairs.DirAt(steps);
                 AddText("떨어짐!", PlayerScreenX, PlayerY - 30, "red");
@@ -480,7 +488,7 @@ namespace Stairs.Core
             if (gz.active && !gz.rest)
             {
                 int key = gz.cycle * 2 + (gz.sweep ? 1 : 0);
-                if (key != gazeKey) { gazeKey = key; if (gz.warn) { Sfx?.Invoke("sfx_warning"); Log?.Invoke("gaze warn"); } else { Sfx?.Invoke("sfx_light_flicker"); Log?.Invoke("gaze sweep"); } }
+                if (key != gazeKey) { gazeKey = key; if (gz.warn) { Sfx?.Invoke("sfx_gaze_warn"); Log?.Invoke("gaze warn"); } else { Sfx?.Invoke("sfx_gaze_laser"); Log?.Invoke("gaze sweep"); } }
             }
             if (floor >= C.flashFromFloor || Mode != GameMode.Normal)   // 카메라 플래시: 막을 수 없지만 피해도 없다
             {
@@ -557,13 +565,16 @@ namespace Stairs.Core
         /// <summary>막기에 성공했을 때 (웹 gainParry): 점수·콤보·일수·불꽃·글자. 종이비행기 편대는 다 막은 뒤 한 번.</summary>
         void GainParry(Threat p)
         {
+            parryHitT = time; parryHitSide = p.side;   // 막기 성공 프레임 (그리기용)
             parries++; combo++;
             mult = Math.Min(C.maxMult, 1 + combo / C.comboPerMult);   // 3연속마다 ×1, 최대 ×10
             maxMult = Math.Max(maxMult, mult);
             maxCombo = Math.Max(maxCombo, combo);
             days = Math.Min(D(C.maxDays), days + D(C.parryDays));
             score += C.parryPoints * mult;
-            Sfx?.Invoke("sfx_parry");
+            int ps = p.side < 0 ? 0 : 1;   // 완벽하게(판정 창 한가운데에서) 막으면 더 짜릿한 소리, 조금 이르거나 늦으면 예전 소리
+            bool perfect = p.type == ThreatType.Airplane || Math.Abs(p.impactT - parryStart[ps] - D(C.parryWindow) / 2) <= D(C.parryPerfect);
+            Sfx?.Invoke(perfect ? "sfx_parry_perfect" : "sfx_parry");
             int px = PlayerScreenX + p.side * 10;
             for (int k = 0; k < 8; k++)   // 패링 불꽃 (웹과 같이 decor 8번, 화면 좌표)
             {
@@ -590,7 +601,8 @@ namespace Stairs.Core
             bool vanishBad = vrun > 0 && (vs.gone || vs.goneIn < 0.2 + vrun * interval);
             bool hereFatal = (Stairs.IsWet(steps) && !sh.live && sh.shockIn < 0.45) || (Stairs.IsCracked(steps) && crackT > 1.0);
             bool hereVanishSoon = Stairs.IsVanish(steps) && vs.goneIn < 0.45;
-            bool gazeNear = gz.sweep && Math.Abs(gz.x - PlayerScreenX) < D(C.gazeWidth) / 2 + 30;
+            double gh = D(C.gazeWidth) / 2;   // 레이저가 아직 내 몸을 다 지나가지 않았으면
+            bool gazeNear = gz.sweep && gz.y < GazeBodyY + gh + GazeBodyH + 4;   // 빨라서 훑는 동안은 몸을 지나갈 때까지 기다린다
             bool wait = wetAhead || (!hereFatal && (vanishBad || (gazeNear && !hereVanishSoon)));
             if (botT >= interval)
             {
