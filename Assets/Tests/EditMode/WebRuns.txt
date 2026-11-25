@@ -319,10 +319,10 @@ floor 99
 rival wait 590
 clipboard spawn
 gaze sweep
-rival lock stairs
+rival gaze
 floor 100
 finish 100F
-end floor100 100 140900 3 91 594
+end floor100 100 140950 3 91 594
 run normal 2 bot 18000
 floor 2
 floor 3

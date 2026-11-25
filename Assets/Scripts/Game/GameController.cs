@@ -857,6 +857,13 @@ namespace Stairs.Game
                     cv.globalAlpha = 1;
                     if (Math.Floor(t * 20) % 2 != 0) Rect(SX(f.wx) - 8, SY(f.wy) - 26, 16, 26, "#9FE0FF", 0.5 * (1 - k));
                 }
+                else if (f.kind == "gaze")
+                {   // 상사의 눈에 들켰다: 그 자리에 굳어 붉게 깜박이며 사라진다
+                    cv.globalAlpha = (float)Clamp(1 - k, 0, 1);
+                    DrawSprite("rival", "default", "idle", 0, SX(f.wx), SY(f.wy), o);
+                    cv.globalAlpha = 1;
+                    if (Math.Floor(t * 12) % 2 == 0) Rect(SX(f.wx) - 8, SY(f.wy) - 26, 16, 26, "#FF5A4A", 0.45 * (1 - k));
+                }
                 else
                 {
                     cv.globalAlpha = (float)Clamp(1 - k * 0.8, 0, 1);
@@ -1271,6 +1278,7 @@ namespace Stairs.Game
             new DemoScene { id = "vanish", name = "사라지는 칸", how = "하늘색 선 칸은 5초 있다가 1초 없어져요. 깜박이면 기다렸다가 다시 생기면 건너기", at = 261, wait = "vanish", vanishPhase = 3.8 },
             new DemoScene { id = "rivalwait", name = "경쟁 사원과 사라지는 칸", how = "경쟁 사원도 사라지는 칸·전기가 흐르는 칸 앞에서는 멈춰 기다려요", at = 356, threat = ThreatType.Rival, vanishPhase = 3.6 },
             new DemoScene { id = "rivalcrack", name = "경쟁 사원과 금 간 칸", how = "경쟁 사원은 금 간 칸에 0.8초만 서 있어도 떨어지고, 젖은 칸에서 전기가 흐르면 감전돼요", at = 212, threat = ThreatType.Rival },
+            new DemoScene { id = "rivalgaze", name = "경쟁 사원과 상사의 눈", how = "레이저가 지나갈 때 움직인 경쟁 사원은 들켜서 실격! 나는 레이저가 지나갈 때까지 가만히", at = 402, threat = ThreatType.Rival, wait = "gaze", gazeT0 = -4.15, dur = 3.4 },
             new DemoScene { id = "gaze", name = "상사의 눈", how = "먼 곳에서 불꽃이 깜박이고 5초 뒤 거대한 레이저가 순식간에(0.6초) 화면을 쓸어내려요. 레이저가 내 위를 지날 때는 오르지 않기", at = 402, wait = "gaze", gazeT0 = -3.6 },
             new DemoScene { id = "flash", name = "카메라 플래시", how = "막을 수 없지만 피해도 없어요. 눈이 부셔도 계속 오르세요", at = 372, flash = 0.8, climb = new[] { 1.5, 1.85, 2.2 }, dur = 3.2 },
         };

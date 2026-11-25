@@ -17,7 +17,7 @@ globalThis.document = { getElementById: () => ({ getContext: () => ctxProxy, sty
 eval(src);
 const A = globalThis.__api;
 // 맞대어 볼 사건 (시각 앞머리는 뺀다). C# RunSimulation.Log와 같은 문구여야 한다
-const KEEP = /spawn$|rival lock|parry ok|heart|^floor \d|promote|gameover|shock hit|crack fall|finish|coffee|sticky bounce|wrong direction|stapler return|airplane miss|escalator push|vanish fall|gaze (caught|start|warn|sweep)|rival (wait|fall|shock|pushed)|chair off|envelope miss|hit \(/;
+const KEEP = /spawn$|rival lock|parry ok|heart|^floor \d|promote|gameover|shock hit|crack fall|finish|coffee|sticky bounce|wrong direction|stapler return|airplane miss|escalator push|vanish fall|gaze (caught|start|warn|sweep)|rival (wait|fall|shock|pushed|gaze)|chair off|envelope miss|hit \(/;
 // 사람 흉내: climb = 0.3초마다 오르기만, idle = 아무것도 안 함, wrong = 0.5초마다 틀린 쪽, slow = 1.67초마다
 function policy(name, k, steps) {
   if (name === 'climb' && k % 18 === 0) return A.dirAt(steps);

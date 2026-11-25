@@ -368,7 +368,7 @@ namespace Stairs.Core
         void UpdateRival(Threat p, double dt)
         {
             if (p.done) return;
-            bool above = steps > p.floorStep;
+            bool above = steps > p.floorStep; double wx0 = p.wx, ri0 = p.ri; var ph0 = p.phase;
             if (p.phase == RivalPhase.Walk || p.phase == RivalPhase.Stand)
             {
                 // 플레이어가 바닥보다 위면 계단 아래 끝으로, 아니면 플레이어 옆으로 걷는다
@@ -390,6 +390,8 @@ namespace Stairs.Core
                 p.ri = nr;
             }
             else p.waiting = false;
+            bool moved = p.wx != wx0 || p.ri != ri0 || (ph0 != p.phase && p.phase != RivalPhase.Stand);
+            if (moved && RivalGazeCaught(p)) return;                          // 상사의 눈이 비추는 동안 움직였다: 실격
             if (p.phase == RivalPhase.Climb && RivalTileHazards(p, dt)) return;   // 계단 장애물에 당했다 (떨어짐·감전)
             bool ready = p.phase == RivalPhase.Stand || (p.phase == RivalPhase.Climb && p.ri >= steps - 1 - 1e-6);
             if (p.locked) return;
@@ -399,6 +401,23 @@ namespace Stairs.Core
                 if (ready) { p.locked = true; Log?.Invoke("rival lock " + (p.phase == RivalPhase.Climb ? "stairs" : "floor")); }
                 else p.impactT = time + D(C.rivalLeap);                  // 아직 따라잡지 못했다: 붙을 때까지 치지 않는다
             }
+        }
+
+        /// <summary>경쟁 사원 × 상사의 눈 (웹 rivalGazeCaught): 레이저 띠가 경쟁 사원 몸에 걸쳐 있는 동안 움직이면 들켜서 실격 (치지 못하고 사라진다).</summary>
+        bool RivalGazeCaught(Threat p)
+        {
+            var g = Gaze();
+            if (!g.sweep) return false;
+            var rp = RivalPos(p); double bx = 160 + (rp.x - camX), by = PlayerY + (rp.y - camY) - GazeBodyH;   // 경쟁 사원 몸 가운데 (화면)
+            if (bx < -8 || bx > D(C.viewW) + 8) return false;                  // 화면 밖(레이저가 닿지 않는 곳)
+            if (Math.Abs(g.y - by) >= D(C.gazeWidth) / 2 + GazeBodyH) return false;
+            p.done = true;
+            fallers.Add(new Faller { wx = rp.x, wy = rp.y, t0 = time, kind = "gaze", side = p.side });
+            score += C.parryPoints;                                            // 덤 점수 (콤보는 그대로)
+            Log?.Invoke("rival gaze");
+            Sfx?.Invoke("sfx_hit");
+            AddText("경쟁 사원 들켰다!", 160 + (rp.x - camX), PlayerY + (rp.y - camY) - 30, "green");
+            return true;
         }
 
         // ------------------------------------------------------------ 경쟁 사원 × 계단 장애물 (웹 rivalBlocked/rivalTileHazards)

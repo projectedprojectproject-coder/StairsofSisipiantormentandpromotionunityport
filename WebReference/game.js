@@ -712,7 +712,7 @@ function rivalPos(p) {
 function updateRival(p, dt) {
   const r = run;
   if (p.done) return;
-  const above = r.steps > p.floorStep;
+  const above = r.steps > p.floorStep, wx0 = p.wx, ri0 = p.ri, ph0 = p.phase;
   if (p.phase === 'walk' || p.phase === 'stand') {
     // 플레이어가 바닥보다 위면 계단 아래 끝으로, 아니면 플레이어 옆으로 걷는다
     const tx = above ? stairX(p.floorStep) : stairX(r.steps) + p.side * 14, d = tx - p.wx;
@@ -730,6 +730,8 @@ function updateRival(p, dt) {
     if (p.waiting && !was) log('rival wait ' + (Math.round(nr) + 1));
     p.ri = nr;
   } else p.waiting = false;
+  const moved = p.wx !== wx0 || p.ri !== ri0 || (ph0 !== p.phase && p.phase !== 'stand');
+  if (moved && rivalGazeCaught(p)) return;                           // 상사의 눈이 비추는 동안 움직였다: 실격
   if (p.phase === 'climb' && rivalTileHazards(p, dt)) return;      // 계단 장애물에 당했다 (떨어짐·감전)
   const ready = p.phase === 'stand' || (p.phase === 'climb' && p.ri >= r.steps - 1 - 1e-6);
   if (p.locked) return;
@@ -738,6 +740,21 @@ function updateRival(p, dt) {
     if (ready) { p.locked = true; log('rival lock ' + (p.phase === 'climb' ? 'stairs' : 'floor')); }
     else p.impactT = r.time + CONFIG.rivalLeap;                    // 아직 따라잡지 못했다: 붙을 때까지 치지 않는다
   }
+}
+// 경쟁 사원 × 상사의 눈: 레이저 띠가 경쟁 사원 몸에 걸쳐 있는 동안 움직이면 들켜서 실격 (치지 못하고 사라진다)
+function rivalGazeCaught(p) {
+  const r = run, g = gazeState(r);
+  if (!g || !g.sweep) return false;
+  const rp = rivalPos(p), bx = 160 + (rp.x - r.camX), by = PLAYER_Y + (rp.y - r.camY) - GAZE_BODY_H;   // 경쟁 사원 몸 가운데 (화면)
+  if (bx < -8 || bx > W + 8) return false;                             // 화면 밖(레이저가 닿지 않는 곳)
+  if (Math.abs(g.y - by) >= CONFIG.gazeWidth / 2 + GAZE_BODY_H) return false;
+  p.done = true;
+  r.fallers.push({ wx: rp.x, wy: rp.y, t0: r.time, kind: 'gaze', side: p.side });
+  r.score += CONFIG.parryPoints;                                       // 덤 점수 (콤보는 그대로)
+  log('rival gaze');
+  sfx('sfx_hit');
+  addText('경쟁 사원 들켰다!', 160 + (rp.x - r.camX), PLAYER_Y + (rp.y - r.camY) - 30, PAL.green);
+  return true;
 }
 // 경쟁 사원 × 계단 장애물
 function rivalBlocked(r, n) {   // 경쟁 사원이 n번 칸에 올라서지 않고 기다리는지
@@ -1509,6 +1526,11 @@ function drawPlayWorld() {
       drawSprite('rival', 'default', 'walk', 0, sx(f.wx) + Math.sin(t * 80) * 1.5, sy(f.wy), o);
       ctx.globalAlpha = 1;
       if (Math.floor(t * 20) % 2) rect(sx(f.wx) - 8, sy(f.wy) - 26, 16, 26, '#9FE0FF', 0.5 * (1 - k));
+    } else if (f.kind === 'gaze') {   // 상사의 눈에 들켰다: 그 자리에 굳어 붉게 깜박이며 사라진다
+      ctx.globalAlpha = clamp(1 - k, 0, 1);
+      drawSprite('rival', 'default', 'idle', 0, sx(f.wx), sy(f.wy), o);
+      ctx.globalAlpha = 1;
+      if (Math.floor(t * 12) % 2 === 0) rect(sx(f.wx) - 8, sy(f.wy) - 26, 16, 26, '#FF5A4A', 0.45 * (1 - k));
     } else {
       ctx.globalAlpha = clamp(1 - k * 0.8, 0, 1);
       o.rot = f.side * t * 6;
@@ -1864,6 +1886,7 @@ const DEMOS = [
   { id: 'vanish', name: '사라지는 칸', how: '하늘색 선 칸은 5초 있다가 1초 없어져요. 깜박이면 기다렸다가 다시 생기면 건너기', at: 261, wait: 'vanish', vanishPhase: 3.8 },
   { id: 'rivalwait', name: '경쟁 사원과 사라지는 칸', how: '경쟁 사원도 사라지는 칸·전기가 흐르는 칸 앞에서는 멈춰 기다려요', at: 356, threat: 'rival', vanishPhase: 3.6 },
   { id: 'rivalcrack', name: '경쟁 사원과 금 간 칸', how: '경쟁 사원은 금 간 칸에 0.8초만 서 있어도 떨어지고, 젖은 칸에서 전기가 흐르면 감전돼요', at: 212, threat: 'rival' },
+  { id: 'rivalgaze', name: '경쟁 사원과 상사의 눈', how: '레이저가 지나갈 때 움직인 경쟁 사원은 들켜서 실격! 나는 레이저가 지나갈 때까지 가만히', at: 402, threat: 'rival', wait: 'gaze', gazeT0: -4.15, dur: 3.4 },
   { id: 'gaze', name: '상사의 눈', how: '먼 곳에서 불꽃이 깜박이고 5초 뒤 거대한 레이저가 순식간에(0.6초) 화면을 쓸어내려요. 레이저가 내 위를 지날 때는 오르지 않기', at: 402, wait: 'gaze', gazeT0: -3.6 },
   { id: 'flash', name: '카메라 플래시', how: '막을 수 없지만 피해도 없어요. 눈이 부셔도 계속 오르세요', at: 372, flash: 0.8, climb: [1.5, 1.85, 2.2], dur: 3.2 },
 ];
