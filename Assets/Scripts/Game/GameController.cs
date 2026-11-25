@@ -489,6 +489,21 @@ namespace Stairs.Game
             else cv.DrawImage(spr, (float)dx, (float)dy, (float)dw, (float)dh);
             return true;
         }
+        static double Hz(int n) { double x = Math.Sin(n * 12.9898) * 43758.5453; return x - Math.Floor(x); }   // 그리기용 고정 난수 (웹 hz)
+        void Zap(double x1, double y1, double x2, double y2, string core, string glowC)
+        {   // 번개 한 마디: 푸른 번짐 + 하얀 심 (웹 zap)
+            int n = Math.Max(1, (int)JsRound(Math.Max(Math.Abs(x2 - x1), Math.Abs(y2 - y1)) * PX));
+            for (int k = 0; k <= n; k++)
+            {
+                double x = JsRound((x1 + (x2 - x1) * k / n) * PX) / PX, y = JsRound((y1 + (y2 - y1) * k / n) * PX) / PX;
+                Rect(x - 0.5, y - 0.5, 1 + 1.0 / PX, 1 + 1.0 / PX, glowC, 0.55); Rect(x, y, 1.0 / PX, 1.0 / PX, core);
+            }
+        }
+        void DashRect(double x, double y, double w, double h, string c, double a, double ph)
+        {   // 점선 테두리 (웹 dashRect)
+            for (double t = 0; t < w; t += 2) if (Math.Floor(t / 2 + ph) % 2 == 0) { Rect(x + t, y, 1, 2.0 / PX, c, a); Rect(x + t, y + h - 2.0 / PX, 1, 2.0 / PX, c, a); }
+            for (double t = 0; t < h; t += 2) if (Math.Floor(t / 2 + ph) % 2 == 0) { Rect(x, y + t, 2.0 / PX, 1, c, a); Rect(x + w - 2.0 / PX, y + t, 2.0 / PX, 1, c, a); }
+        }
         bool DrawImg(string id, double x, double y, double w, double h, Color? fallback)
         {
             var s = catalog ? catalog.GetImage(id) : null;
@@ -753,15 +768,24 @@ namespace Stairs.Game
                     // 사라지는 칸: 없어진 동안은 윤곽만, 없어지기 1초 전부터 깜박인다. 윗면의 하늘색 선이 표시
                     bool van = r.Stairs.IsVanish(i); var vst = r.Vanish();
                     if (van && vst.gone)
-                    {
-                        Rect(sx - stepW / 2, sy, stepW, tileH, "#9FE0FF", 0.12);   // 없어진 칸: 옅게 채운 유령
-                        Rect(sx - stepW / 2, sy, stepW, 1, "#9FE0FF", 0.5); Rect(sx - stepW / 2, sy + tileH - 1, stepW, 1, "#9FE0FF", 0.25);
+                    {   // 없어진 칸: 발 디딜 곳 없음 — 붉은 점선 테두리와 X (웹과 같다)
+                        double gx0 = sx - stepW / 2;
+                        Rect(gx0, sy, stepW, tileH, "#FF5A4A", 0.08);
+                        DashRect(gx0, sy, stepW, tileH, "#FF6A5E", 0.85, r.time * 6);
+                        for (int k = 0; k < 5; k++) { Rect(sx - 2.5 + k, sy + 2 + k, 1, 1, "#FF8A7A", 0.8); Rect(sx + 2.5 - k - 1, sy + 2 + k, 1, 1, "#FF8A7A", 0.8); }
                         continue;
                     }
-                    if (van && vst.warn && Math.Floor(time * 12) % 2 == 0) cv.globalAlpha = 0.3f;
+                    double vanK = van && vst.warn ? 1 - vst.goneIn / D(C.vanishWarn) : 0;   // 없어지기까지 다가올수록 1
+                    if (van && vst.warn && Math.Floor(time * (10 + vanK * 14)) % 2 == 0) cv.globalAlpha = 0.35f;
                     bool ok = DrawSprite("stairs", "zone" + zone, cracked && hasCrack ? "cracked" : wet && hasWet ? "wet" : "tile", time, sx + jx, sy, new SO { anchor = "tc", dw = tileW, dh = tileH, nofb = true });
                     cv.globalAlpha = 1;
                     if (van) Rect(sx - stepW / 2, sy, stepW, 1, "#9FE0FF", 0.8);
+                    if (vanK > 0)
+                    {   // 없어지기 직전: 붉은·하늘색 테두리가 번쩍이고 아래로 부서져 내린다
+                        double vx0 = sx - stepW / 2; bool blink = Math.Floor(time * (8 + vanK * 16)) % 2 != 0;
+                        FrameRect(vx0, sy, stepW, tileH, blink ? "#FF6A5E" : "#9FE0FF");
+                        for (int k = 0; k < 3 + (int)Math.Floor(vanK * 6); k++) Rect(vx0 + Hz(k * 7 + i) * stepW, sy + tileH + ((r.time * 40 + k * 5) % 10) * vanK, 1, 1, "#9FE0FF", 0.8);
+                    }
                     if (r.Stairs.IsReverse(i))
                     {   // 거꾸로 칸: 보라색 윗면과 엇갈린 화살표 (웹과 같다)
                         double rx0 = sx - stepW / 2, rcx = sx, rcy = sy + 6;
@@ -781,21 +805,47 @@ namespace Stairs.Game
                     {   // 전기: 예고 때는 전선 끝에서 불꽃이 튀고, 흐를 때는 물 위로 번개가 친다
                         var shs = r.Stairs.Shock(r.time); double x0 = sx - stepW / 2, w = stepW;
                         if (shs.live)
-                        {
-                            Rect(x0, sy - 2, w, 4, "#F2E678", 0.35);
-                            string c = Math.Floor(r.time * 30) % 2 != 0 ? "#FFF6B0" : "#9FE0FF";
+                        {   // 흐르는 동안: 칸이 번쩍이고, 지그재그 번개 네 줄이 치솟고, 불꽃이 사방으로 튄다 (웹과 같다)
+                            int efl = (int)Math.Floor(r.time * 30);
+                            Rect(x0 - 2, sy - 4, w + 4, tileH + 6, "#7FD8FF", 0.2 + 0.14 * (efl % 2));
+                            Rect(x0, sy, w, tileH, "#E8FBFF", efl % 3 == 0 ? 0.5 : 0.18);
+                            string c = efl % 2 != 0 ? "#FFF6B0" : "#E8FBFF";
                             for (double x = 0; x < w; x += 1.0 / PX) Rect(x0 + x, sy - 1 + JsRound(Math.Sin((x + r.time * 40) * 3.1) * 1.5 * PX) / PX, 1.0 / PX, 1.0 / PX, c);
-                            Rect(x0 + ((r.time * 97) % w), sy - 6, 1.0 / PX, 5, c); Rect(x0 + ((r.time * 53 + 7) % w), sy - 5, 1.0 / PX, 4, c);
+                            for (int b = 0; b < 4; b++)
+                            {
+                                int sd = efl * 7 + b * 13 + i * 3; double bx = x0 + w * (0.12 + 0.25 * b) + (Hz(sd) - 0.5) * 4, by = sy, hgt = 8 + Hz(sd + 1) * 10;
+                                for (int k = 0; k < 5; k++) { double nx = bx + (Hz(sd + k * 5 + 2) - 0.5) * 6, ny = by - hgt / 5; Zap(bx, by, nx, ny, "#FFFFFF", "#7FD8FF"); bx = nx; by = ny; }
+                            }
+                            for (int k = 0; k < 10; k++) { int sd = efl * 11 + k * 17 + i; Rect(x0 - 3 + Hz(sd) * (w + 6), sy - 2 - Hz(sd + 1) * 14, 1, 1, k % 2 != 0 ? "#FFFFFF" : "#FFF6B0"); }
                         }
-                        else if (shs.warn && Math.Floor(r.time * 20) % 2 != 0)
-                        {
-                            Rect(x0 + w * 0.82, sy - 3, 1.0 / PX, 1.0 / PX, "#FFE680"); Rect(x0 + w * 0.86, sy - 4, 1.0 / PX, 1.0 / PX, "#FFE680"); Rect(x0 + w * 0.78, sy - 2, 1.0 / PX, 1.0 / PX, "#FFE680");
+                        else if (shs.warn)
+                        {   // 예고: 흐르기가 다가올수록 불꽃이 잦아지고 커지며, 0.3초 전부터 노란 테두리가 깜박인다
+                            double k = 1 - shs.shockIn / D(C.shockWarn); int efl = (int)Math.Floor(r.time * 24);
+                            for (int q = 0; q < 2 + (int)Math.Floor(k * 7); q++)
+                            {
+                                int sd = efl * 5 + q * 19 + i; if (Hz(sd + 3) > 0.35 + k * 0.5) continue;
+                                double bx = x0 + Hz(sd) * w, by = sy; Zap(bx, by, bx + (Hz(sd + 1) - 0.5) * 4, by - 2 - k * 5 * Hz(sd + 2), "#FFF6B0", "#E3C24A");
+                            }
+                            if (shs.shockIn < 0.3 && efl % 2 != 0) FrameRect(x0, sy, w, tileH, "#FFE680");
                         }
                     }
+                    if (cracked && shake == 0)
+                    {   // 멀리서도 보이게: 금 간 자리에 붉은 실금
+                        double cx0 = sx - stepW / 2;
+                        for (int k = 0; k < 4; k++) Rect(cx0 + stepW * (0.3 + k * 0.1), sy + 1 + k, 1, 1, "#E0584C", 0.7);
+                    }
                     if (shake != 0)
-                    {
-                        Rect(sx - stepW / 2 + jx, sy, stepW, tileH, PalRed, 0.45 * shake);
-                        for (int d = 0; d < 4; d++) Rect(sx - stepW / 2 + ((d * 37 + r.steps * 11) % stepW) + jx, sy + tileH + ((r.time * 60 + d * 9) % 16), 1, 1, "#3A3D43");
+                    {   // 서 있는 동안: 금이 퍼지며 붉게 고동치고, 무너지기 직전엔 테두리가 번쩍이며 덩어리가 떨어진다 (웹과 같다)
+                        double cx0 = sx - stepW / 2 + jx, pulse = 0.5 + 0.5 * Math.Sin(r.time * (8 + shake * 22));
+                        Rect(cx0, sy, stepW, tileH, PalRed, (0.25 + 0.35 * pulse) * shake);
+                        int n = 2 + (int)Math.Floor(shake * 6);
+                        for (int k = 0; k < n; k++)
+                        {
+                            double ccx = sx + jx, ccy = sy + tileH / 2.0;
+                            for (int s2 = 0; s2 < 3; s2++) { double nx = ccx + (Hz(k * 9 + s2 + i) - 0.5) * 10 * shake, ny = ccy + (Hz(k * 9 + s2 + i + 4) - 0.5) * tileH; Zap(ccx, ccy, nx, ny, "#FFB0A0", "#B02A22"); ccx = nx; ccy = ny; }
+                        }
+                        if (shake > 0.6 && Math.Floor(r.time * 16) % 2 != 0) FrameRect(cx0, sy, stepW, tileH, "#FF6A5E");
+                        for (int d = 0; d < 4 + (int)Math.Floor(shake * 8); d++) Rect(cx0 + ((d * 37 + r.steps * 11) % stepW), sy + tileH + ((r.time * 60 + d * 9) % 16), 1 + (d % 2), 1 + (d % 2), "#3A3D43");
                     }
                     if (!ok)
                     {

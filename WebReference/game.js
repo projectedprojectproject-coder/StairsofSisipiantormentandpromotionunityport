@@ -530,6 +530,18 @@ function isWet(i) {
   return (((i * 2246822519) >>> 0) % 1000) / 1000 < CONFIG.wetShare;
 }
 // 전기 상태: live(지금 흐름), warn(곧 흐름, 불꽃), shockIn(다음에 흐르기까지 초)
+function hz(n) { const x = Math.sin(n * 12.9898) * 43758.5453; return x - Math.floor(x); }   // 그리기용 고정 난수 (0~1, 게임 규칙과 무관)
+function zap(x1, y1, x2, y2, core, glowC) {   // 번개 한 마디: 푸른 번짐 + 하얀 심 (아트 픽셀 단위)
+  const n = Math.max(1, Math.round(Math.max(Math.abs(x2 - x1), Math.abs(y2 - y1)) * PX));
+  for (let k = 0; k <= n; k++) {
+    const x = Math.round((x1 + (x2 - x1) * k / n) * PX) / PX, y = Math.round((y1 + (y2 - y1) * k / n) * PX) / PX;
+    rect(x - 0.5, y - 0.5, 1 + 1 / PX, 1 + 1 / PX, glowC, 0.55); rect(x, y, 1 / PX, 1 / PX, core);
+  }
+}
+function dashRect(x, y, w, h, c, a, ph) {   // 점선 테두리 (ph: 흐르는 위상)
+  for (let t = 0; t < w; t += 2) if (Math.floor(t / 2 + ph) % 2 === 0) { rect(x + t, y, 1, 1 / PX * 2, c, a); rect(x + t, y + h - 1 / PX * 2, 1, 1 / PX * 2, c, a); }
+  for (let t = 0; t < h; t += 2) if (Math.floor(t / 2 + ph) % 2 === 0) { rect(x, y + t, 1 / PX * 2, 1, c, a); rect(x + w - 1 / PX * 2, y + t, 1 / PX * 2, 1, c, a); }
+}
 function shockState(t) {
   const P = CONFIG.shockPeriod, ph = t % P, start = P - CONFIG.shockTime;
   return { live: ph >= start, warn: ph >= start - CONFIG.shockWarn && ph < start, shockIn: ph >= start ? 0 : start - ph, cycle: Math.floor(t / P) };
@@ -1438,15 +1450,23 @@ function drawPlayWorld() {
     const wet = isWet(i), hasWet = !!(sdef && sdef.animations && sdef.animations.wet);
     // 사라지는 칸: 없어진 동안은 윤곽만, 없어지기 1초 전부터 깜박인다. 윗면의 하늘색 선이 표시
     const van = isVanish(i), vst = vanishState(r);
-    if (van && vst.gone) {
-      rect(sx - CONFIG.stepW / 2, sy, CONFIG.stepW, tileH, '#9FE0FF', 0.12);   // 없어진 칸: 옅게 채운 유령
-      rect(sx - CONFIG.stepW / 2, sy, CONFIG.stepW, 1, '#9FE0FF', 0.5); rect(sx - CONFIG.stepW / 2, sy + tileH - 1, CONFIG.stepW, 1, '#9FE0FF', 0.25);
+    if (van && vst.gone) {   // 없어진 칸: 발 디딜 곳 없음 — 붉은 점선 테두리와 X (올라서면 떨어진다)
+      const x0 = sx - CONFIG.stepW / 2;
+      rect(x0, sy, CONFIG.stepW, tileH, '#FF5A4A', 0.08);
+      dashRect(x0, sy, CONFIG.stepW, tileH, '#FF6A5E', 0.85, r.time * 6);
+      for (let k = 0; k < 5; k++) { rect(sx - 2.5 + k, sy + 2 + k, 1, 1, '#FF8A7A', 0.8); rect(sx + 2.5 - k - 1, sy + 2 + k, 1, 1, '#FF8A7A', 0.8); }
       continue;
     }
-    if (van && vst.warn && Math.floor(time * 12) % 2 === 0) ctx.globalAlpha = 0.3;
+    const vanK = van && vst.warn ? 1 - vst.goneIn / CONFIG.vanishWarn : 0;   // 없어지기까지 다가올수록 1
+    if (van && vst.warn && Math.floor(time * (10 + vanK * 14)) % 2 === 0) ctx.globalAlpha = 0.35;
     const ok = drawSprite('stairs', 'zone' + zone, cracked && hasCrack ? 'cracked' : wet && hasWet ? 'wet' : 'tile', time, sx + jx, sy, { anchor: 'tc', dw: tileW, dh: tileH, nofb: true });
     ctx.globalAlpha = 1;
     if (van) rect(sx - CONFIG.stepW / 2, sy, CONFIG.stepW, 1, '#9FE0FF', 0.8);
+    if (vanK > 0) {   // 없어지기 직전: 붉은·하늘색 테두리가 번쩍이고 아래로 부서져 내린다
+      const x0 = sx - CONFIG.stepW / 2, blink = Math.floor(time * (8 + vanK * 16)) % 2;
+      frameRect(x0, sy, CONFIG.stepW, tileH, blink ? '#FF6A5E' : '#9FE0FF');
+      for (let k = 0; k < 3 + Math.floor(vanK * 6); k++) rect(x0 + hz(k * 7 + i) * CONFIG.stepW, sy + tileH + ((r.time * 40 + k * 5) % 10) * vanK, 1, 1, '#9FE0FF', 0.8);
+    }
     if (isReverse(i)) {     // 거꾸로 칸: 보라색 윗면과 엇갈린 화살표
       const x0 = sx - CONFIG.stepW / 2, w = CONFIG.stepW, cx = sx, cy = sy + 6;
       rect(x0, sy, w, 2, '#B07CE0', 0.9); rect(x0, sy + 2, w, 1, '#6E4A99', 0.7);
@@ -1462,18 +1482,41 @@ function drawPlayWorld() {
     }
     if (wet) {   // 전기: 예고 때는 전선 끝에서 불꽃이 튀고, 흐를 때는 물 위로 번개가 친다
       const sh = shockState(r.time), x0 = sx - CONFIG.stepW / 2, w = CONFIG.stepW;
-      if (sh.live) {
-        rect(x0, sy - 2, w, 4, '#F2E678', 0.35);
-        const c = Math.floor(r.time * 30) % 2 ? '#FFF6B0' : '#9FE0FF';
+      if (sh.live) {   // 흐르는 동안: 칸이 번쩍이고, 지그재그 번개 네 줄이 위로 치솟고, 불꽃이 사방으로 튄다 (올라서 있으면 감전)
+        const fl = Math.floor(r.time * 30);
+        rect(x0 - 2, sy - 4, w + 4, tileH + 6, '#7FD8FF', 0.2 + 0.14 * (fl % 2));
+        rect(x0, sy, w, tileH, '#E8FBFF', fl % 3 === 0 ? 0.5 : 0.18);
+        const c = fl % 2 ? '#FFF6B0' : '#E8FBFF';
         for (let x = 0; x < w; x += 1 / PX) rect(x0 + x, sy - 1 + Math.round(Math.sin((x + r.time * 40) * 3.1) * 1.5 * PX) / PX, 1 / PX, 1 / PX, c);
-        rect(x0 + ((r.time * 97) % w), sy - 6, 1 / PX, 5, c); rect(x0 + ((r.time * 53 + 7) % w), sy - 5, 1 / PX, 4, c);
-      } else if (sh.warn && Math.floor(r.time * 20) % 2) {
-        rect(x0 + w * 0.82, sy - 3, 1 / PX, 1 / PX, '#FFE680'); rect(x0 + w * 0.86, sy - 4, 1 / PX, 1 / PX, '#FFE680'); rect(x0 + w * 0.78, sy - 2, 1 / PX, 1 / PX, '#FFE680');
+        for (let b = 0; b < 4; b++) {
+          const sd = fl * 7 + b * 13 + i * 3; let bx = x0 + w * (0.12 + 0.25 * b) + (hz(sd) - 0.5) * 4, by = sy;
+          const hgt = 8 + hz(sd + 1) * 10;
+          for (let k = 0; k < 5; k++) { const nx = bx + (hz(sd + k * 5 + 2) - 0.5) * 6, ny = by - hgt / 5; zap(bx, by, nx, ny, '#FFFFFF', '#7FD8FF'); bx = nx; by = ny; }
+        }
+        for (let k = 0; k < 10; k++) { const sd = fl * 11 + k * 17 + i; rect(x0 - 3 + hz(sd) * (w + 6), sy - 2 - hz(sd + 1) * 14, 1, 1, k % 2 ? '#FFFFFF' : '#FFF6B0'); }
+      } else if (sh.warn) {   // 예고: 흐르기가 다가올수록 불꽃이 잦아지고 커지며, 0.3초 전부터 노란 테두리가 깜박인다
+        const k = 1 - sh.shockIn / CONFIG.shockWarn, fl = Math.floor(r.time * 24);
+        for (let q = 0; q < 2 + Math.floor(k * 7); q++) {
+          const sd = fl * 5 + q * 19 + i; if (hz(sd + 3) > 0.35 + k * 0.5) continue;
+          const bx = x0 + hz(sd) * w, by = sy; zap(bx, by, bx + (hz(sd + 1) - 0.5) * 4, by - 2 - k * 5 * hz(sd + 2), '#FFF6B0', '#E3C24A');
+        }
+        if (sh.shockIn < 0.3 && fl % 2) frameRect(x0, sy, w, tileH, '#FFE680');
       }
     }
-    if (shake) {
-      rect(sx - CONFIG.stepW / 2 + jx, sy, CONFIG.stepW, tileH, PAL.red, 0.45 * shake);
-      for (let d = 0; d < 4; d++) rect(sx - CONFIG.stepW / 2 + ((d * 37 + r.steps * 11) % CONFIG.stepW) + jx, sy + tileH + ((r.time * 60 + d * 9) % 16), 1, 1, '#3A3D43');
+    if (cracked && !shake) {   // 멀리서도 보이게: 금 간 자리에 붉은 실금 (서 있으면 무너진다)
+      const x0 = sx - CONFIG.stepW / 2;
+      for (let k = 0; k < 4; k++) rect(x0 + CONFIG.stepW * (0.3 + k * 0.1), sy + 1 + k, 1, 1, '#E0584C', 0.7);
+    }
+    if (shake) {   // 서 있는 동안: 금이 퍼지며 붉게 고동치고, 무너지기 직전엔 테두리가 번쩍이며 덩어리가 떨어진다
+      const x0 = sx - CONFIG.stepW / 2 + jx, pulse = 0.5 + 0.5 * Math.sin(r.time * (8 + shake * 22));
+      rect(x0, sy, CONFIG.stepW, tileH, PAL.red, (0.25 + 0.35 * pulse) * shake);
+      const n = 2 + Math.floor(shake * 6);
+      for (let k = 0; k < n; k++) {   // 갈라지는 금 (가운데에서 퍼진다)
+        let cx = sx + jx, cy = sy + tileH / 2;
+        for (let s2 = 0; s2 < 3; s2++) { const nx = cx + (hz(k * 9 + s2 + i) - 0.5) * 10 * shake, ny = cy + (hz(k * 9 + s2 + i + 4) - 0.5) * tileH; zap(cx, cy, nx, ny, '#FFB0A0', '#B02A22'); cx = nx; cy = ny; }
+      }
+      if (shake > 0.6 && Math.floor(r.time * 16) % 2) frameRect(x0, sy, CONFIG.stepW, tileH, '#FF6A5E');
+      for (let d = 0; d < 4 + Math.floor(shake * 8); d++) rect(x0 + ((d * 37 + r.steps * 11) % CONFIG.stepW), sy + tileH + ((r.time * 60 + d * 9) % 16), 1 + (d % 2), 1 + (d % 2), '#3A3D43');
     }
     if (!ok) {
       rect(sx - tileW / 2, sy, tileW, tileH, landing ? PAL.red : PAL.gray);
@@ -2362,6 +2405,7 @@ function frame(now) {
 if (params.has('cs')) {                                          // QA: ?cs=intro&cst=3.2&csfreeze=1 — 컷신의 한 순간을 멈춰 본다
   playCutscene(params.get('cs'), toTitle); cs.t = parseFloat(params.get('cst') || '0'); cs.freeze = params.get('csfreeze') === '1';
 } else if (params.get('nointro') !== '1') playCutscene('intro', toTitle);   // 게임을 켜면 인트로 (건너뛰면 타이틀)
+if (params.has('demo')) { cs = null; toTitle(); openDemo(params.get('demo')); }   // QA: ?demo=wet — 장애물 보기 장면을 바로 연다
 publish();
 requestAnimationFrame(frame);
 })();

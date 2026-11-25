@@ -257,4 +257,5 @@ uGUI로 비슷하게 그리던 화면을 버리고, 웹 `game.js`의 그리기·
 - 컷신 (웹과 같은 대본·그림·소리): 켤 때 인트로, 보통 모드 새 판 시작(건너뛰기), 100층 엔딩. 재생기는 `GameController.Cutscenes.cs`(웹 playCutscene/updateCutscene/drawCutscene을 한 줄씩), 대본 `CutsceneData.cs`는 `python Tools~/cutscenes/gen_cs_data.py WebReference/game.js Assets/Scripts/Game/CutsceneData.cs`로 웹 대본에서 만든다. 소리 효과는 자막으로 쓰지 않는다.
 - 플레이테스트는 세 컷신의 17순간을 멈춰 찍고(`00_cs_*`, web_shots.py와 같은 순간) 인트로를 건너뛴 뒤 이어 간다. `-nointro`.
 - 결과 화면 버튼: 다시 하기 · 기록 공유 · 로비로.
+- 즉사 장애물을 위험할 때 또렷하게 (웹과 같다): 전기가 흐르면 칸이 번쩍이고 번개 네 줄·불꽃이 튀며, 흐르기 0.3초 전부터 노란 테두리가 깜박인다. 금 간 칸은 멀리서도 붉은 실금, 서 있으면 금이 퍼지고 붉게 고동치며 무너지기 직전 테두리가 번쩍인다. 사라지는 칸은 없어지기 직전 테두리가 번쩍이며 부서지고, 없어지면 붉은 점선 테두리와 X. `Tools~/qa/hazard_gallery.py`로 확인.
 
