@@ -8,6 +8,7 @@
 | `run_all.py` | 모든 QA를 한 번에 (위 표의 셋, 단위 테스트, 파이프라인 QA 에이전트 4개). 하나라도 문제면 종료 코드 1 |
 | `anatomy_qa.py` | 사람 스프라이트 해부학: 손이 둘을 넘지 않는지(몸통에 박힌 팔), 손이 어깨에서 팔 길이 안인지, 옷자락 모서리에 붙은 손 조각 |
 | `cutscene_qa.js` | 컷신 대본: 쓰는 그림·시트·소리가 있는지, 프레임 번호, 키·카메라·자막 시각, 카메라가 배경 밖을 보지 않는지, 배우가 화면에 보이는지, 자막 폭·읽을 시간, 소리 효과를 자막으로 쓰지 않았는지, 길이 (화면은 `tools/cutscenes/cs_gallery.py`) |
+| `doc_factcheck.py` | README·안내 문서 사실 확인: 장애물이 나오는 층, 규칙 수치, 주소 매개변수·명령줄, 경로·명령, 화면 글자가 코드와 같은지, 기록·결정 문구가 섞이지 않았는지. 사람이 판단할 문장은 에이전트 `.claude/agents/stairs-docs-factcheck.md`가 코드에서 확인해 보고 |
 | `edge_close.py` | 고치기: 프레임 테두리에 닿아 잘려 보이는 픽셀을 외곽선으로 닫는다 (`upgrade16.py` 다음에 돌린다) |
 
 **한 번에 모두**: `python tools/qa/run_all.py` (Unity 판: `python Tools~/qa/run_all.py`, WebReference + Unity EditMode 테스트) — 아래 세 검사기 + `pytest tests/` + 파이프라인 QA 에이전트(Developer QA, Designer QA, Publisher Playwright 동작 확인, Screens QA)를 지금 게임(`demo_api`)에 돌린다. `--fast`는 Publisher·Screens QA를 뺀다.

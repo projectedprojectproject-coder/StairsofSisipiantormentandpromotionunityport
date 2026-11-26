@@ -5,6 +5,7 @@
 3. 애니메이션       anim_qa.py
 3b. 팔·손 해부학   anatomy_qa.py (팔 두 개, 손 두 개, 손은 어깨에서 팔 길이 안)
 3c. 컷신 대본     cutscene_qa.js (그림·프레임·시각·카메라·자막·소리, 소리 효과 자막 없음)
+3d. README 사실   doc_factcheck.py (문서의 층·수치·경로·매개변수·화면 글자가 코드와 같은지, 기록 문구)
 4. 단위 테스트      pytest tests/
 5. 파이프라인 QA 에이전트를 지금 게임에: Developer QA, Designer QA (규칙 검사. 재생 응답이 없으면 Claude 검토는 건너뜀),
    Publisher 동작 확인(Playwright 9항목), Screens QA(컨셉 화면 대조)
@@ -43,6 +44,7 @@ run('스프라이트 (sprite_qa.py)', [sys.executable, str(HERE / 'sprite_qa.py'
 run('애니메이션 (anim_qa.py)', [sys.executable, str(HERE / 'anim_qa.py'), str(GAME / 'assets')], '문제 0개')
 run('팔·손 해부학 (anatomy_qa.py)', [sys.executable, str(HERE / 'anatomy_qa.py'), str(GAME / 'assets')], '문제 0개')
 run('컷신 대본 (cutscene_qa.js)', ['node', str(HERE / 'cutscene_qa.js'), str(GAME / 'game.js'), str(GAME / 'assets' / 'sprite_definition.json')], '문제 0개')
+run('README 사실 확인 (doc_factcheck.py)', [sys.executable, str(HERE / 'doc_factcheck.py')])
 if (ROOT / 'tests').exists():
     run('단위 테스트 (pytest tests/)', [sys.executable, '-m', 'pytest', '-q', 'tests'])
 
